@@ -375,7 +375,7 @@ float speed_after_brake(float v, float d) {
 // 通常走行・大曲がりの新しいモータ出力（USE_NEW_CURVE_PREVIEW）
 //   k_ahead : この先の曲率 [1/m]（推定したセンサの所の曲がり具合 obs_z3）
 //   速さの目標は次の3つの小さい方
-//    ① 今曲がっている曲率（サーボの本当の角度の推定から求め、TRACE_CURV_FILTER_S でならす）を、横すべりせずに回れる速さ
+//    ① 今曲がっている曲率（サーボの本当の角度の推定から求め、PREVIEW_CURV_FILTER_S でならす）を、横すべりせずに回れる速さ
 //    ② この先の曲率を回れる速さ v_a に、そこまでの距離 d = PREVIEW_RATIO × SENSOR_TO_REAR_AXLE_M の間に
 //       減速して間に合う速さ √(v_a² + 2·GRIP_LONG_USE·d)。カーブの入口では、センサの所の曲がり具合が
 //       後輪が着く前に大きくなるので、ハンドルが切れるより前に減速が始まる
@@ -389,8 +389,9 @@ float speed_after_brake(float v, float d) {
 void trace_motor_preview(float k_ahead) {
     float v = speed_mps;
     float k_act = curvature_of_angle(servo_est_deg);
-    // 今の曲がり具合：本当の角度の曲率を TRACE_CURV_FILTER_S でならした値（センサのきざみでハンドルが揺れる分をならす）
-    trace_k_filt = trace_k_filt + (fabsf(k_act) - trace_k_filt) * (0.001f / TRACE_CURV_FILTER_S);
+    // 今の曲がり具合：本当の角度の曲率を PREVIEW_CURV_FILTER_S でならした値（センサのきざみでハンドルが揺れる分をならす）。
+    // 横すべりして線から外へずれると、ハンドルを大きく切るのでここが大きくなり、減速する（グリップを大きく見ていた時の守り）
+    trace_k_filt = trace_k_filt + (fabsf(k_act) - trace_k_filt) * (0.001f / PREVIEW_CURV_FILTER_S);
     float kn = trace_k_filt;
     float vt = corner_speed(kn);                                     // ①
     float va = corner_speed(fabsf(k_ahead));

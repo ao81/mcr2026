@@ -443,6 +443,12 @@ void line_obs_update(unsigned char c) {
     float z3 = obs_z3;
     if (seen) {
         float r = line_position_m(c) - z1;
+#if USE_NEW_LINE_SHAPE && USE_NEW_CURVE_PREVIEW
+        // センサは 10mm おきなので、同じ形に見える線の位置には幅がある。その幅の中なら直さない（LINE_OBS_DEADZONE_M）
+        if (r > LINE_OBS_DEADZONE_M) r -= LINE_OBS_DEADZONE_M;
+        else if (r < -LINE_OBS_DEADZONE_M) r += LINE_OBS_DEADZONE_M;
+        else r = 0.0f;
+#endif
         z1 = z1 + 3.0f * p * ds * r;
         z2 = z2 + 3.0f * p * p * ds * r;
         z3 = z3 + p * p * p * ds * r;
@@ -462,14 +468,20 @@ void line_obs_update(unsigned char c) {
 
 //**********************************************************************
 // 推定した線の形からハンドル角度を決める（USE_NEW_LINE_SHAPE）
-//   ① 今出す指令が効くのは STEER_LEAD_S 後。その間に進む距離 d だけ先の、センサの所の線の横の位置を予測する
-//        eL = z1 + (z2 − Ls·κc)·d + (z3 − κc)·d²/2
+//   ① 今出す指令が効くのは STEER_LEAD_S 後。その間に進む距離 d だけ先の、センサの所の線の横の位置と向きを予測する
+//        eL = z1 + (z2 − Ls·κc)·d + (z3 − κc)·d²/2、  z2L = z2 + (z3 − κc)·d
 //      （その間の車の曲がり具合 κc は、サーボの本当の角度と、前の1msに出した指令の平均とする。
 //        この1msの指令は、表を引いた時に一度書き換わっているので使わない）
-//   ② USE_NEW_STEER のピュアパシュートと同じ式 κ = 2eL ÷ (Ld² + eL²)（Ld = pursuit_ld）で曲がる。
-//      センサで見た 5mm きざみの位置の代わりに、推定してサーボの遅れの分だけ先へ進めた位置を使うので、
-//      ハンドルがきざみで揺れず、遅れの分だけ早く切れる
-//      （模擬では、線の形から Ld の所の位置を求め直すより、この方がカーブの入口でふくらまなかった）
+//   ② 車が曲率 κ で曲がると、センサの所の線の横の位置は  dz1/ds = z2 − Ls·κ  で変わる（線の推定と同じ式）。
+//      これが −a·z1 になる曲率  κ = (z2 + a·z1) ÷ Ls（a = LINE_STEER_GAIN）で曲がると、線とのずれは
+//      1/a [m] 進むごとに 1/e に減る（進んだ距離で決まるので、速さが変わっても同じ形で戻る）。
+//      ずれが 0 の時は κ = z2 ÷ Ls。円のカーブでは z2 = Ls·(線の曲率) なので、ちょうど線の曲率で曲がる。
+//      車の向きは  dz2/ds = z3 − κ  で変わり、ずれが 0 なら Ls 進むごとに 1/e ずつ線の向きにそろう。
+//      ピュアパシュート（線の位置だけを見る）は線の向き z2 を見ないので、ずれが 0 を行き過ぎてハンドルが揺れた
+//      （模擬で、半径1.5mのカーブで ±3°、0.3秒周期。揺れの山に合わせて速さを落とすので遅くなる）
+//   ②は USE_NEW_CURVE_PREVIEW も 1 のときだけ使う。②はずれを急いで直さない分、カーブの入口で線が外へずれるので、
+//   線の曲がり具合 z3 で先に減速しておく必要がある。USE_NEW_CURVE_PREVIEW が 0 のときは、
+//   USE_NEW_STEER のピュアパシュートと同じ式 κ = 2eL ÷ (Ld² + eL²)（Ld = pursuit_ld）で曲がる
 //**********************************************************************
 float line_obs_angle(void) {
     const float ls = SENSOR_TO_REAR_AXLE_M;
@@ -478,6 +490,10 @@ float line_obs_angle(void) {
     if (d < 0.0f) d = 0.0f;
     float el = obs_z1 + (obs_z2 - ls * kc) * d + (obs_z3 - kc) * d * d * 0.5f;
     float k = 2.0f * el / (pursuit_ld * pursuit_ld + el * el);
+#if USE_NEW_CURVE_PREVIEW
+    float z2l = obs_z2 + (obs_z3 - kc) * d;
+    k = (z2l + LINE_STEER_GAIN * el) / ls;
+#endif
     float deg = atanf(WHEELBASE_M * k) / DEG_TO_RAD_F;
     if (deg > SERVO_MAX_ANGLE) deg = SERVO_MAX_ANGLE;
     if (deg < -SERVO_MAX_ANGLE) deg = -SERVO_MAX_ANGLE;
