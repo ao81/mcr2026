@@ -42,6 +42,8 @@ void run_lane_pass(bool right) {
     }
     measure_line_pass(right ? check_shasenhenkoum() : check_shasenhenkouh());
     if (line_pass_state == PASS_DONE) {
+        speed_measure_by_line(HALF_LINE_WIDTH_M, line_pass_ms);    // 通過時間から速さを測り直す
+        reset_distance();                                          // ここから車線変更地点までの距離を数える
         cnt1 = 0;
         pattern = lane_pt(right, PT_LANE_R_SELECT, PT_LANE_L_SELECT);
         return;
@@ -195,6 +197,10 @@ void run_lane_recover(int stage, bool right) {
 //   通過時間 line_pass_ms と経過時間 cnt1 で決める。詳しくは config.h の説明を参照
 //**********************************************************************
 void lane_speed_control(void) {
+#if USE_NEW_LANE_BRAKE
+    lane_speed_control_new();
+    return;
+#endif
     int i = clamp_int(line_pass_ms - LANE_K_MIN, 0, LANE_STEPS - 1);
     long t = (long)cnt1;
     int power;

@@ -19,6 +19,8 @@ void run_cross_found(void) {
 void run_cross_pass(void) {
     measure_line_pass(check_crossline());
     if (line_pass_state == PASS_DONE) {
+        speed_measure_by_line(CROSS_LINE_WIDTH_M, line_pass_ms);   // 通過時間から速さを測り直す
+        reset_distance();                                          // ここからクランクまでの距離を数える
         line_pass_state = PASS_WAIT;
         cnt1 = 0;
         pattern = PT_CROSS_BRAKE;
@@ -157,6 +159,10 @@ void crank_check_lost(unsigned char c, bool right) {
 //   通過時間 line_pass_ms と経過時間 cnt1 で決める。詳しくは config.h の説明を参照
 //**********************************************************************
 void crank_speed_control(void) {
+#if USE_NEW_CRANK_BRAKE
+    crank_speed_control_new();
+    return;
+#endif
     int i = clamp_int(line_pass_ms - CRANK_K_MIN, 0, CRANK_STEPS - 1);
     long t = (long)cnt1;
     int power;

@@ -69,7 +69,12 @@ void run_trace(int stage) {
     }
 
     // 表に従ってハンドルとモータを出力
-    apply_table(TRACE_SENSOR, TRACE_ACT[stage], TRACE_N, c);
+    int i = apply_table(TRACE_SENSOR, TRACE_ACT[stage], TRACE_N, c);
+#if USE_NEW_TRACE_SPEED
+    if (i >= 0) trace_motor_new(TRACE_ACT[stage][i].ang);   // モータ値だけ計算で置き換える
+#else
+    (void)i;
+#endif
 
     // 外側のセンサだけが白線 → 大曲がりへ（同じ段階の表を使う）
     if (c == 0x03) { cnt1 = 0; pattern = PT_CURVE_R + stage; }

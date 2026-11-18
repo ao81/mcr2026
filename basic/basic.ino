@@ -15,6 +15,7 @@
 //   run_trace.ino  … スタート、通常走行、大曲がり、停止
 //   run_crank.ino  … クロスライン、クランク
 //   run_lane.ino   … 右・左レーンチェンジ
+//   speed_model.ino… 速度の推定と、計算による減速（新しい走行アルゴリズム）
 //   sdlog.ino      … microSD へのログ保存
 //**************************************************************************
 
@@ -157,6 +158,15 @@ int lane_cross_recheck(bool right);
 void lane_steer_output(int stage, bool right);
 // basic.ino
 void run_pattern(void);
+// speed_model.ino
+void speed_model_update(void);
+void speed_measure_by_line(float width_m, int pass_ms);
+void reset_distance(void);
+float braking_distance(float v, float v_target, int brake_power);
+int brake_power_for(float remain_m, float v_target, int brake_power, float margin_m);
+void crank_speed_control_new(void);
+void lane_speed_control_new(void);
+void trace_motor_new(int angle);
 // sdlog.ino
 void log_setup(void);
 void log_sample(void);
@@ -184,6 +194,9 @@ volatile unsigned long run_ms;         // 走行時間（自動停止用。元: 
 volatile int line_pass_state;          // ライン通過時間の計測状態（元: kyori_flug）
 volatile int line_pass_ms;             // ラインの通過時間[ms]（元: kyoritime）
 volatile int f_setup_end;              // setup が終わったら 1
+volatile float speed_mps;              // 推定した車の速さ [m/s]（speed_model.ino）
+volatile float dist_m;                 // ラインの終わりからの走行距離 [m]（speed_model.ino）
+volatile int brake_started;            // 1: 計算による減速でブレーキを始めた（speed_model.ino）
 
 FspTimer fsp_timer;                    // 1ms割り込み用タイマ
 
@@ -205,6 +218,8 @@ typedef struct {
     int8_t ang;          // ハンドル角度
     int8_t ml;           // 左モータ（DIPスイッチで縮小した後の値）
     int8_t mr;           // 右モータ
+    int16_t spd;         // 推定した速さ [mm/s]（LOG_SPEED_MODEL が 1 のときだけ書き出す）
+    int16_t dist;        // ラインの終わりからの距離 [mm]（同上）
 } log_t;
 volatile log_t log_buff[LOG_SLOTS];
 volatile log_t log_raw;                // 最後に出力したハンドル・モータの値
@@ -325,6 +340,8 @@ void AGTCallback(timer_callback_args_t __attribute((unused))* p_args) {
     }
 
     run_pattern();
+
+    speed_model_update();                // 出したモータ出力から速さと距離を計算（speed_model.ino）
 }
 
 //***********************************************************************
