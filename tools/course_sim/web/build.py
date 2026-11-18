@@ -16,6 +16,8 @@ OUT = os.path.join(SIM, "simulator.html")
 CLANG = os.environ.get("CLANG", "clang++")
 
 NUM = r"\(?\s*-?[0-9]+(?:\.[0-9]*)?f?\s*\)?"
+# USE_NEW_TRACTION より上にあるが、画面から変えられるようにする値
+EXTRA = {"AUTO_STOP_MS"}
 
 
 def convert_config(text):
@@ -24,12 +26,12 @@ def convert_config(text):
     start = next(i for i, l in enumerate(lines) if "#define USE_NEW_" in l)
     items, section, out = [], "", []
     for i, line in enumerate(lines):
-        if i >= start:
-            m = re.match(r"^// (.+)$", line)
-            if m and i > 0 and lines[i - 1].startswith("//====="):
-                section = m.group(1).strip()
-            m = re.match(r"^#define\s+([A-Z0-9_]+)\s+(" + NUM + r")(\s*//\s*(.*))?$", line)
-            if m and not m.group(1).startswith("LOG_"):
+        m = re.match(r"^// (.+)$", line)
+        if m and i > 0 and lines[i - 1].startswith("//====="):
+            section = m.group(1).strip()
+        m = re.match(r"^#define\s+([A-Z0-9_]+)\s+(" + NUM + r")(\s*//\s*(.*))?$", line)
+        if m and (i >= start or m.group(1) in EXTRA):
+            if not m.group(1).startswith("LOG_"):
                 name, val = m.group(1), m.group(2)
                 v = val.replace("(", "").replace(")", "").replace("f", "").strip()
                 kind = "switch" if name.startswith("USE_NEW_") else ("float" if "." in v else "int")

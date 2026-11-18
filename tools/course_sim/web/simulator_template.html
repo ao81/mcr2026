@@ -187,6 +187,7 @@ function parseOutput(text) {
 const ITEMS = CFG_ITEMS.map((it, i) => Object.assign({ i }, it));
 const BY_NAME = Object.fromEntries(ITEMS.map(it => [it.name, it]));
 const SWITCHES = ITEMS.filter(it => it.kind === "switch");
+const GLOBAL_CFG = ["AUTO_STOP_MS"];   // 走りごとではなく、コースの欄でまとめて変える値
 const SW_LABEL = {
   USE_NEW_TRACTION: "加速の制限", USE_NEW_TRACE_SPEED: "通常走行の速さ", USE_NEW_CURVE_SPEED: "大曲がりの速さ",
   USE_NEW_STEER: "通常走行のハンドル（ピュアパシュート）", USE_NEW_CRANK_BRAKE: "クランク手前の減速", USE_NEW_CRANK_TURN: "クランクの円弧",
@@ -201,7 +202,8 @@ const COURSE_OPTS = [
   { k: "lane_new", label: "切れ目から新しい車線の線が始まるまで [m]", def: 0, only: "lane" },
   { k: "curve_r", label: "カーブの半径 [m]", def: 0.45, only: "curve" },
   { k: "line_w", label: "クロス・ハーフラインの白の幅 [m]", def: 0.032, only: "crank lane" },
-  { k: "ms", label: "模擬する時間の上限 [ms]", def: 6000 },
+  { k: "auto_stop", label: "スタートから自動停止まで [ms]（AUTO_STOP_MS）", cfg: "AUTO_STOP_MS", prog: true },
+  { k: "ms", label: "模擬する時間の上限 [ms]", def: 6000, ph: "自動" },
 ];
 const CAR_OPTS = [
   { k: "v_max", label: "出力100%の速さ [m/s]", cfg: "V_MAX_MPS" },
@@ -242,9 +244,10 @@ function buildOptRows(el, list, store, filter) {
   for (const o of list) {
     if (filter && o.only && !o.only.split(" ").includes(filter)) continue;
     const row = document.createElement("label"); row.className = "row";
-    const ph = o.cfg ? fmt(BY_NAME[o.cfg].def) : fmt(o.def);
+    const ph = o.ph || (o.cfg ? fmt(BY_NAME[o.cfg].def) : fmt(o.def));
     row.innerHTML = `<span>${esc(o.label)}</span>`;
-    row.title = o.cfg ? `空欄なら config.h の ${o.cfg}（${ph}）` : `空欄なら ${ph}`;
+    row.title = o.k === "ms" ? "空欄なら 6000 ms か「自動停止の時間 + 1500 ms」の長い方" :
+      o.prog ? `すべての走りの config.h の ${o.cfg} をこの値にする（空欄なら ${ph}）` : o.cfg ? `空欄なら config.h の ${o.cfg}（${ph}）` : `空欄なら ${ph}`;
     row.appendChild(numInput(store[o.k], ph, v => {
       if (v === undefined) delete store[o.k]; else store[o.k] = v;
       if (store === S.car) { const n = Object.keys(S.car).length; document.getElementById("carSum").textContent = n ? `${n} 個を変えている` : "config.h の値どおり（開いて変える）"; }
@@ -288,7 +291,7 @@ function buildSettings() {
     d.querySelector("summary").textContent = "config.h の値" + (nChanged ? `（${nChanged} 個を変えている）` : "（初期値のまま）");
     const cfgEl = d.querySelector(".cfg"); let sec = "";
     for (const it of ITEMS) {
-      if (it.kind === "switch") continue;
+      if (it.kind === "switch" || GLOBAL_CFG.includes(it.name)) continue;
       const sname = it.section.split("（")[0];
       if (sname !== sec) { sec = sname; const h = document.createElement("div"); h.className = "sec"; h.textContent = sec; cfgEl.appendChild(h); }
       const row = document.createElement("label"); row.className = "item"; row.title = it.comment;
@@ -309,6 +312,7 @@ function buildSettings() {
 // 走り1つ分の config.h の値（コースの距離を合わせる指定も入れる）
 function cfgValues(run) {
   const v = ITEMS.map(it => run.cfg[it.name] ?? it.def);
+  for (const o of COURSE_OPTS) if (o.prog && S.copt[o.k] !== undefined) v[BY_NAME[o.cfg].i] = BY_NAME[o.cfg].kind === "int" ? Math.round(S.copt[o.k]) : S.copt[o.k];
   if (S.sync) {
     if (S.copt.cross_to !== undefined) v[BY_NAME.CROSS_TO_CRANK_M.i] = S.copt.cross_to;
     if (S.copt.half_to !== undefined) v[BY_NAME.HALF_TO_LANE_M.i] = S.copt.half_to;
@@ -323,10 +327,13 @@ function checkRun(v) {
     return "USE_NEW_CRANK_TURN が 0 のときは、CRANK_ENTRY_MPS に元の曲がり方でうまく曲がれる速さ（例 1.4）を入れてください（実機ではコンパイルできません）";
   return "";
 }
-function simArgs(extra) {
+// v: その走りの config.h の値（cfgValues の戻り値）
+function simArgs(extra, v) {
   const a = [S.course];
   const kind = kindOf(S.course);
-  for (const o of COURSE_OPTS) if (S.copt[o.k] !== undefined && (!o.only || o.only.split(" ").includes(kind))) a.push(`${o.k}=${S.copt[o.k]}`);
+  for (const o of COURSE_OPTS) if (!o.prog && S.copt[o.k] !== undefined && (!o.only || o.only.split(" ").includes(kind))) a.push(`${o.k}=${S.copt[o.k]}`);
+  // 模擬する時間は、自動停止より長くする（自動停止を延ばしたときに、模擬が先に終わらないように）
+  if (S.copt.ms === undefined) a.push(`ms=${Math.max(6000, v[BY_NAME.AUTO_STOP_MS.i] + 1500)}`);
   for (const o of CAR_OPTS) if (S.car[o.k] !== undefined) a.push(`${o.k}=${S.car[o.k]}`);
   return a.concat(extra);
 }
@@ -342,7 +349,7 @@ async function simulateAll() {
   for (let ri = 0; ri < S.runs.length; ri++) {
     const run = S.runs[ri], v = cfgValues(run), err = checkRun(v);
     run.errEl.textContent = err;
-    const r = err ? { s: [], result: "走らせていません（設定の組み合わせが使えません）", out: false } : parseOutput(await runSim(v, simArgs(["dump=1"])));
+    const r = err ? { s: [], result: "走らせていません（設定の組み合わせが使えません）", out: false } : parseOutput(await runSim(v, simArgs(["dump=1"], v)));
     if (token !== runToken) return;
     r.ri = ri; r.color = COLORS[ri % COLORS.length]; r.show = (D.runs[ri] ? D.runs[ri].show : true);
     runs.push(r);
@@ -367,7 +374,7 @@ async function average7() {
     let tot = 0, n = 0, fail = 0, lat = 0;
     for (const ap of aps) {
       note.textContent = `模擬中… ${run.name}（${n + fail + 1}/7）`;
-      const args = simArgs([]).filter(a => !a.startsWith("approach="));
+      const args = simArgs([], v).filter(a => !a.startsWith("approach="));
       const r = parseOutput(await runSim(v, args.concat([`approach=${ap}`])));
       if (r.goal) { tot += +r.goal; n++; } else fail++;
       lat = Math.max(lat, r.lat);
@@ -402,9 +409,11 @@ function renderLives() {
   D.runs.forEach(r => {
     const name = S.runs[r.ri] ? S.runs[r.ri].name : "";
     const d = document.createElement("div"); d.className = "live";
-    const res = r.goal ? `<b>ゴール ${r.goal} ms</b>` : (r.out ? `<b class="out">コースアウト ${r.outT} ms</b>` : "");
+    const last = r.s.length ? r.s[r.s.length - 1] : null;
+    const res = r.goal ? `<b>ゴール ${r.goal} ms</b>` : r.out ? `<b class="out">コースアウト ${r.outT} ms</b>` :
+      (last && last[I.p] >= 800) ? `<b class="out">ゴール前に停止（${last[I.t]} ms、pattern ${last[I.p]}）</b>` : "";
     d.innerHTML = `<div class="name"><input type="checkbox" ${r.show ? "checked" : ""}><span class="sw" style="background:${r.color}"></span>${esc(name)}</div>
-      <div class="res">${res} ${esc(r.result.replace(/^\S+\s+/, "").replace(/^(ゴール|コースアウト)\s+\d+ ms\s*/, ""))}</div><div class="ptn"></div><table class="vals"></table>`;
+      <div class="res">${res} ${esc(r.result.replace(/^\S+\s+/, "").replace(/^(ゴール|コースアウト)\s+\d+ ms\s*/, "").replace(/^ゴールできず\s*/, last && last[I.p] >= 800 ? "" : "ゴールできず "))}</div><div class="ptn"></div><table class="vals"></table>`;
     d.querySelector("input").onchange = e => { r.show = e.target.checked; chartDirty = true; draw(); };
     r.ptnEl = d.querySelector(".ptn"); r.valEl = d.querySelector(".vals");
     box.appendChild(d);
