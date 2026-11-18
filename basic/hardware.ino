@@ -67,12 +67,19 @@ void led_out_m(unsigned char led) {
 //**********************************************************************
 // モータ速度
 //   引数 左モータ, 右モータ  -100〜100（0で停止、100で正転100%、-100で逆転100%）
-//   DIPスイッチの値で 70〜100% に縮小してから出力する
+//   DIPスイッチの値で 70〜100% に縮小してから出力する（USE_NEW_TRACTION のときは、さらにグリップの範囲に制限する）
 //**********************************************************************
 void sp(int accele_l, int accele_r) {
     int sw_data = dipsw_get() + DIP_SPEED_BASE;   // 7〜10
     accele_l = accele_l * sw_data / 10;
     accele_r = accele_r * sw_data / 10;
+
+#if USE_NEW_TRACTION
+    // 走行中は、タイヤがすべらない範囲に制限する（speed_model.ino）。停止した後は制限しない
+    if (pattern >= PT_RUN_FIRST && pattern <= PT_RUN_LAST) {
+        traction_limit(&accele_l, &accele_r);
+    }
+#endif
 
     log_raw.ml = accele_l;
     log_raw.mr = accele_r;
@@ -103,4 +110,16 @@ void sp(int accele_l, int accele_r) {
 void ha(int angle) {
     log_raw.ang = angle;
     GTIOC1B = SERVO_CENTER + SERVO_DIR * angle * HANDLE_STEP;
+}
+
+//**********************************************************************
+// サーボ（ハンドル）を小数の角度で動かす（新しい走行アルゴリズムで、計算した角度をそのまま出すときに使う）
+//   1度 = HANDLE_STEP なので、1/HANDLE_STEP 度きざみで出せる。ログには四捨五入した角度を記録する
+//**********************************************************************
+void ha_deg(float angle) {
+    int a = (int)(angle >= 0.0f ? angle + 0.5f : angle - 0.5f);
+    log_raw.ang = a;
+    float step = angle * HANDLE_STEP;
+    int pwm = (int)(step >= 0.0f ? step + 0.5f : step - 0.5f);
+    GTIOC1B = SERVO_CENTER + SERVO_DIR * pwm;
 }

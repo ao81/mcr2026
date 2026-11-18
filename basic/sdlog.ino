@@ -55,6 +55,7 @@ void log_sample(void) {
         log_buff[log_write].mr = log_raw.mr;
         log_buff[log_write].spd = (int16_t)(speed_mps * 1000.0f);
         log_buff[log_write].dist = (int16_t)(dist_m > 30.0f ? 30000 : dist_m * 1000.0f);
+        log_buff[log_write].vmax = (int16_t)(v_max_mps * 1000.0f);
         log_write = next_write;
     }
 }
@@ -64,7 +65,7 @@ void log_sample(void) {
 //**********************************************************************
 void log_task(void) {
     static int state = LOGTASK_IDLE;
-    char buf[64];
+    char buf[80];
     int i;
 
     if (err_sd != 0) {
@@ -124,7 +125,7 @@ void log_task(void) {
 
     case LOGTASK_HEADER:
 #if LOG_SPEED_MODEL
-        microSD.println("ms,pattern,sensor,handle,motor_l,motor_r,speed_mm_s,dist_mm");
+        microSD.println("ms,pattern,sensor,handle,motor_l,motor_r,speed_mm_s,dist_mm,vmax_mm_s");
 #else
         microSD.println("ms,pattern,sensor,handle,motor_l,motor_r");
 #endif
@@ -141,9 +142,9 @@ void log_task(void) {
         if (log_write != log_read) {
             const volatile log_t& entry = log_buff[log_read];
 #if LOG_SPEED_MODEL
-            snprintf(buf, sizeof(buf), "%u,%d,'%08lu,%d,%d,%d,%d,%d",
+            snprintf(buf, sizeof(buf), "%u,%d,'%08lu,%d,%d,%d,%d,%d,%d",
                 entry.time, entry.ptn, convertBCD_CharToLong(entry.sen),
-                (int)entry.ang, (int)entry.ml, (int)entry.mr, (int)entry.spd, (int)entry.dist);
+                (int)entry.ang, (int)entry.ml, (int)entry.mr, (int)entry.spd, (int)entry.dist, (int)entry.vmax);
 #else
             snprintf(buf, sizeof(buf), "%u,%d,'%08lu,%d,%d,%d",
                 entry.time, entry.ptn, convertBCD_CharToLong(entry.sen),

@@ -15,7 +15,8 @@
 //   run_trace.ino  … スタート、通常走行、大曲がり、停止
 //   run_crank.ino  … クロスライン、クランク
 //   run_lane.ino   … 右・左レーンチェンジ
-//   speed_model.ino… 速度の推定と、計算による減速（新しい走行アルゴリズム）
+//   planner.ino    … クランク・レーンチェンジの経路の計算、ピュアパシュート（新しい走行アルゴリズム）
+//   speed_model.ino… 速度の推定と、計算による減速・速さの決め方（新しい走行アルゴリズム）
 //   sdlog.ino      … microSD へのログ保存
 //**************************************************************************
 
@@ -28,6 +29,15 @@
 #include "config.h"
 #include "tables.h"
 
+// 新しい走行アルゴリズムのスイッチの組み合わせの確認（config.h）
+//   元の車線変更は、元の減速のあとの速さに合わせた時間でハンドルを切る。減速だけ新しくすると時間が合わず、
+//   コースの模擬では、どの速さでもコースアウトした
+static_assert(!(USE_NEW_LANE_BRAKE && !USE_NEW_LANE_STEER),
+              "USE_NEW_LANE_BRAKE は USE_NEW_LANE_STEER と一緒に 1 にしてください");
+//   クランクに入る速さの自動計算（0）は、円弧で曲がる場合の値。元の曲がり方で使うときは、うまく曲がれる速さを入れる
+static_assert(!(USE_NEW_CRANK_BRAKE && !USE_NEW_CRANK_TURN) || (CRANK_ENTRY_MPS > 0.0f),
+              "USE_NEW_CRANK_TURN が 0 のときは、CRANK_ENTRY_MPS に元の曲がり方でうまく曲がれる速さ（例 1.4）を入れてください");
+
 #define timer(x) delay(x)    // timer関数=delay関数
 
 //========================================
@@ -37,6 +47,12 @@
 #define MASK0_3       0x07   // ×××××○○○
 #define MASK3_0       0xe0   // ○○○×××××
 #define MASK4_4       0xff   // ○○○○○○○○
+
+#define PI_F          3.14159265f
+#define DEG_TO_RAD_F  0.01745329252f   // 度 → ラジアン
+// 新しい走行アルゴリズムの計算に使うグリップ（測った値 × 余裕の割合。config.h）
+#define GRIP_LAT_USE  (GRIP_LAT_MPS2 * PLAN_GRIP_RATIO_LAT)
+#define GRIP_LONG_USE (GRIP_LONG_MPS2 * PLAN_GRIP_RATIO_LONG)
 
 //========================================
 // pattern 番号（ログの pattern 列にもこの番号が記録される）
@@ -53,10 +69,12 @@ enum {
     PT_CRANK_SEARCH  = 103,  // 減速しながらクランクを探す
     PT_CRANK_L_ENTER = 110,  // 左クランク 突入
     PT_CRANK_L_SLOW  = 111,  // 左クランク 低速旋回
+    PT_CRANK_L_ARC   = 112,  // 左クランク 計算した円弧で曲がる（USE_NEW_CRANK_TURN）
     PT_CRANK_L_RETURN  = 120,  // 左クランク 中央線へ復帰
     PT_CRANK_L_OUTSIDE = 121,  // 左クランク 外側にはみ出した
     PT_CRANK_R_ENTER = 150,  // 右クランク 突入
     PT_CRANK_R_SLOW  = 151,  // 右クランク 低速旋回
+    PT_CRANK_R_ARC   = 152,  // 右クランク 計算した円弧で曲がる（USE_NEW_CRANK_TURN）
     PT_CRANK_R_RETURN  = 160,  // 右クランク 中央線へ復帰
     PT_CRANK_R_OUTSIDE = 161,  // 右クランク 外側にはみ出した
     PT_LANE_R_FOUND    = 200,  // 右ハーフライン検出
@@ -65,6 +83,8 @@ enum {
     PT_LANE_R_APPROACH = 300,  // 300〜310 白線が切れるまで直進
     PT_LANE_R_STEER    = 320,  // 320〜330 ハンドルを切る
     PT_LANE_R_STRAIGHT = 340,  // 340〜350 切り終わって直進
+    PT_LANE_R_SCURVE   = 360,  // 360〜370 計算した2つの円弧で隣の車線へ（USE_NEW_LANE_STEER）
+    PT_LANE_R_SPOST    = 380,  // 380〜390 円弧を走り終えて、新しい線を探す（USE_NEW_LANE_STEER）
     PT_LANE_R_ALIGN    = 400,  // 400〜410 新しい線に合わせる
     PT_LANE_R_FINISH   = 420,  // 420〜430 終了処理
     PT_LANE_R_RECOVER  = 440,  // 440〜450 外へふくらんだ時
@@ -74,6 +94,8 @@ enum {
     PT_LANE_L_APPROACH = 600,
     PT_LANE_L_STEER    = 620,
     PT_LANE_L_STRAIGHT = 640,
+    PT_LANE_L_SCURVE   = 660,
+    PT_LANE_L_SPOST    = 680,
     PT_LANE_L_ALIGN    = 700,
     PT_LANE_L_FINISH   = 720,
     PT_LANE_L_RECOVER  = 740,
@@ -112,6 +134,7 @@ void led_out(unsigned char led);
 void led_out_m(unsigned char led);
 void sp(int accele_l, int accele_r);
 void ha(int angle);
+void ha_deg(float angle);
 // sensor.ino
 int check_crossline(void);
 int check_shasenhenkoum(void);
@@ -139,6 +162,8 @@ void run_crank_enter(bool right);
 void run_crank_slow(bool right);
 void run_crank_return(bool right);
 void run_crank_outside(bool right);
+void run_crank_arc(bool right);
+bool crank_start_arc(bool right);
 void crank_check_lost(unsigned char c, bool right);
 void crank_speed_control(void);
 // run_lane.ino
@@ -151,6 +176,9 @@ void run_lane_straight(int stage, bool right);
 void run_lane_align(int stage, bool right);
 void run_lane_finish(int stage, bool right);
 void run_lane_recover(int stage, bool right);
+void run_lane_scurve(int stage, bool right);
+void run_lane_spost(int stage, bool right);
+bool lane_start_scurve(int stage, bool right);
 void lane_speed_control(void);
 int lane_pt(bool right, int pt_right, int pt_left);
 bool lane_new_line_found(unsigned char c, bool right);
@@ -158,15 +186,45 @@ int lane_cross_recheck(bool right);
 void lane_steer_output(int stage, bool right);
 // basic.ino
 void run_pattern(void);
+// planner.ino
+float radius_of_angle(float angle);
+float angle_for_radius(float r);
+float servo_delay_s(float angle);
+float crank_r_far(float d);
+float crank_r_in(float d);
+float crank_room(float d);
+int crank_plan_delay(float v, float delay, float* r_out, float* wait_out);
+int crank_plan(float v, float* r_out, float* wait_out);
+float scurve_x(float r, float len, float f, float d);
+float scurve_sin(float r, float len, float f);
+float lane_r_for(float len, float d);
+int scurve_corner_x(float r, float len, float d, float f_line, float fwd, float lat, float* x_out);
+int lane_old_ok(float r, float len, float d, float x_start, float s0);
+int lane_new_ok(float r, float len, float d, float x_start, float f_end);
+int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* len_out, float* wait_out);
+int lane_plan(float v, float x_start, float* r_out, float* len_out, float* wait_out);
+float crank_turn_speed_auto(void);
+float lane_turn_speed_auto(void);
+void plan_setup(void);
+float line_position_m(unsigned char c);
+float pursuit_lookahead_m(void);
+int pursuit_angle(unsigned char c);
 // speed_model.ino
+float curvature_of_angle(float angle);
+float accel_up_limit(float v, float k_abs);
 void speed_model_update(void);
 void speed_measure_by_line(float width_m, int pass_ms);
 void reset_distance(void);
 float braking_distance(float v, float v_target, int brake_power);
+float deadbeat_speed(float v, float v_target, float k_abs);
+int power_of_speed(float u);
 int brake_power_for(float remain_m, float v_target, int brake_power, float margin_m);
 void crank_speed_control_new(void);
 void lane_speed_control_new(void);
+void drive_at(float v_target, float angle);
+float corner_speed(float k_abs);
 void trace_motor_new(int angle);
+void traction_limit(int* power_l, int* power_r);
 // sdlog.ino
 void log_setup(void);
 void log_sample(void);
@@ -195,8 +253,18 @@ volatile int line_pass_state;          // ライン通過時間の計測状態�
 volatile int line_pass_ms;             // ラインの通過時間[ms]（元: kyoritime）
 volatile int f_setup_end;              // setup が終わったら 1
 volatile float speed_mps;              // 推定した車の速さ [m/s]（speed_model.ino）
+volatile float v_max_mps;              // 出力100%のときの速さ [m/s]。初めは V_MAX_MPS、USE_NEW_VMAX_LEARN で走りながら直す
 volatile float dist_m;                 // ラインの終わりからの走行距離 [m]（speed_model.ino）
 volatile int brake_started;            // 1: 計算による減速でブレーキを始めた（speed_model.ino）
+float crank_entry_mps;                 // クランクに入る速さ [m/s]（planner.ino の plan_setup で決める）
+float lane_entry_mps;                  // 車線変更を始める速さ [m/s]（同上）
+volatile float plan_wait_m;            // 計算した経路：曲がり始めるまでに直進する距離 [m]
+volatile float plan_len_m;             // 計算した経路：円弧1つの長さ [m]
+volatile float plan_switch_m;          // 計算した経路：レーンチェンジで逆向きにハンドルを切る所 [m]
+volatile float plan_speed_mps;         // 計算した経路：走る速さ [m/s]
+volatile float plan_angle;             // 計算した経路：ハンドル角度 [度]（向きは呼ぶ側で付ける）
+volatile float trace_k_filt;           // 通常走行の速さを決める曲率をならした値 [1/m]（speed_model.ino）
+volatile float lane_offset_m;          // 中央線が切れる直前の、線に対する車の横の位置 [m]（右がプラス）
 
 FspTimer fsp_timer;                    // 1ms割り込み用タイマ
 
@@ -220,6 +288,7 @@ typedef struct {
     int8_t mr;           // 右モータ
     int16_t spd;         // 推定した速さ [mm/s]（LOG_SPEED_MODEL が 1 のときだけ書き出す）
     int16_t dist;        // ラインの終わりからの距離 [mm]（同上）
+    int16_t vmax;        // 出力100%のときの速さ v_max_mps [mm/s]（同上。USE_NEW_VMAX_LEARN で変わる）
 } log_t;
 volatile log_t log_buff[LOG_SLOTS];
 volatile log_t log_raw;                // 最後に出力したハンドル・モータの値
@@ -265,11 +334,14 @@ void setup() {
     run_ms = 0;
     line_pass_state = PASS_WAIT;
     line_pass_ms = 0;
+    v_max_mps = V_MAX_MPS;  // 出力100%のときの速さ（speed_model.ino）
 
     // AGT 1msごとの割り込み  PCLKB=24MHz, 1分周 → 24000カウントで1ms（設定値は1小さい23999）
     fsp_timer.begin(TIMER_MODE_PERIODIC, AGT_TIMER, 1, 23999, 1, (timer_source_div_t)TIMER_SOURCE_DIV_1, AGTCallback);
     IRQManager::getInstance().addPeripheral(IRQ_AGT, (void*)fsp_timer.get_cfg());
     fsp_timer.open();
+
+    plan_setup();           // 新しい走行アルゴリズムで使う速さを計算しておく（planner.ino）
 
     Serial.begin(9600);
     log_setup();            // microSD の確認（sdlog.ino）
@@ -366,10 +438,12 @@ void run_pattern(void) {
     case PT_CRANK_L_SLOW:    run_crank_slow(false);     return;
     case PT_CRANK_L_RETURN:  run_crank_return(false);   return;
     case PT_CRANK_L_OUTSIDE: run_crank_outside(false);  return;
+    case PT_CRANK_L_ARC:     run_crank_arc(false);      return;
     case PT_CRANK_R_ENTER:   run_crank_enter(true);     return;
     case PT_CRANK_R_SLOW:    run_crank_slow(true);      return;
     case PT_CRANK_R_RETURN:  run_crank_return(true);    return;
     case PT_CRANK_R_OUTSIDE: run_crank_outside(true);   return;
+    case PT_CRANK_R_ARC:     run_crank_arc(true);       return;
     case PT_LANE_R_FOUND:    run_lane_found(true);      return;
     case PT_LANE_R_PASS:     run_lane_pass(true);       return;
     case PT_LANE_R_SELECT:   run_lane_select(true);     return;
@@ -392,6 +466,8 @@ void run_pattern(void) {
         case 0: run_lane_approach(stage, right); return;   // 300〜310 / 600〜610
         case 1: run_lane_steer(stage, right);    return;   // 320〜330 / 620〜630
         case 2: run_lane_straight(stage, right); return;   // 340〜350 / 640〜650
+        case 3: run_lane_scurve(stage, right);   return;   // 360〜370 / 660〜670
+        case 4: run_lane_spost(stage, right);    return;   // 380〜390 / 680〜690
         case 5: run_lane_align(stage, right);    return;   // 400〜410 / 700〜710
         case 6: run_lane_finish(stage, right);   return;   // 420〜430 / 720〜730
         case 7: run_lane_recover(stage, right);  return;   // 440〜450 / 740〜750

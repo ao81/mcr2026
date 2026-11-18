@@ -24,6 +24,7 @@ int lane_cross_recheck(bool right) {
 // pattern 200 / 500 : ハーフラインを検出した
 //**********************************************************************
 void run_lane_found(bool right) {
+    lane_offset_m = 0.0f;
     led_out(right ? 0x1 : 0x2);
     ha(0);
     line_pass_state = PASS_WAIT;
@@ -80,6 +81,9 @@ void run_lane_approach(int stage, bool right) {
     lane_speed_control();
     if (cnt1 > LANE_START_WAIT_MS) {
         if (sensor_inp(MASK4_4) == 0x00) {   // 中央線が切れた → 車線変更開始
+#if USE_NEW_LANE_STEER
+            if (lane_start_scurve(stage, right)) return;   // 計算した2つの円弧で曲がる
+#endif
             line_pass_state = PASS_WAIT;
             led_out(right ? 0x1 : 0x2);
             lane_steer_output(stage, right);
@@ -89,11 +93,19 @@ void run_lane_approach(int stage, bool right) {
         }
     }
     unsigned char c = sensor_inp(MASK4_4);
+#if USE_NEW_LANE_STEER
+    // 計算した経路は元の線の真上から曲がり始めるのが一番緩くなるので、線の中央を走る
+    // （元の表は、車線を変える側へ少し寄せる）。線に対する車の位置も記録しておく
+    apply_table(LINE_STEER_SENSOR, LINE_STEER_ACT, LINE_STEER_N, c);
+    if (c != 0x00) lane_offset_m = -line_position_m(c);
+    (void)stage;
+#else
     if (right) {
         apply_table(LANE_R_APPROACH_SENSOR, LANE_R_APPROACH_ACT[stage], LANE_R_APPROACH_N, c);
     } else {
         apply_table(LANE_L_APPROACH_SENSOR, LANE_L_APPROACH_ACT[stage], LANE_L_APPROACH_N, c);
     }
+#endif
 }
 
 // 車線変更でハンドルを切っている間の出力
@@ -190,6 +202,96 @@ void run_lane_recover(int stage, bool right) {
     } else {
         apply_table(LANE_L_RECOVER_SENSOR, LANE_L_RECOVER_ACT[stage], LANE_L_RECOVER_N, c);
     }
+}
+
+//**********************************************************************
+// 中央線が切れた時に、計算した2つの円弧で車線変更できるか調べて、できるなら 360 / 660 + 段階 へ（USE_NEW_LANE_STEER）
+//   戻り値 true: 円弧で曲がる  false: 元の方法で曲がる
+//**********************************************************************
+bool lane_start_scurve(int stage, bool right) {
+    float r, len, wait;
+    float v = speed_mps;
+    float x_start = right ? lane_offset_m : -lane_offset_m;   // 車線を変える側へずれている分
+    if (!lane_plan(v, x_start, &r, &len, &wait)) return false;
+    float v_turn = corner_speed(1.0f / r);
+    if (v > v_turn * PLAN_OVERSPEED) return false; // 速すぎて、この円弧では横すべりする
+
+    float d = LANE_SHIFT_M - x_start;              // 横に動く距離
+    float phi = 2.0f * atanf(d / len);             // 円弧1つで回る角度 [rad]
+    float ang = angle_for_radius(r);
+    plan_wait_m = wait;
+    plan_len_m = r * phi;                          // 円弧1つの長さ
+    // サーボが +角度 から −角度 へ動き終わるまでの真ん中で、曲がる向きが変わったとみなせる。
+    // その分だけ早く切り返すと、1つ目と2つ目の円弧の長さがそろう（終わりの位置は 2 × 円弧の長さ のまま）
+    plan_switch_m = plan_len_m - v_turn * ang / (2.0f * SERVO_SPEED_DPS);
+    plan_speed_mps = v_turn;
+    plan_angle = ang;
+    reset_distance();                              // ここから距離を数える
+    line_pass_state = PASS_WAIT;
+    led_out(right ? 0x1 : 0x2);
+    cnt1 = 0;
+    pattern = lane_pt(right, PT_LANE_R_SCURVE, PT_LANE_L_SCURVE) + stage;
+    run_lane_scurve(stage, right);                 // この1msの出力もすぐ出す
+    return true;
+}
+
+//**********************************************************************
+// pattern 360〜370 / 660〜670 : 計算した2つの円弧で隣の車線へ（USE_NEW_LANE_STEER）
+//   plan_wait_m だけ直進 → 1つ目の円弧（車線を変える向き）→ 2つ目の円弧（逆向き）で、向きを元に戻しながら横にずれる
+//   この間はセンサを見ない（新しい線が斜めに見えても、経路を最後まで走る）
+//**********************************************************************
+void run_lane_scurve(int stage, bool right) {
+    const int dir = right ? 1 : -1;
+    float s = dist_m - plan_wait_m;
+    if (s < 0.0f) {
+        ha(0);
+        drive_at(plan_speed_mps, 0);
+    } else if (s < plan_switch_m) {
+        ha_deg(dir * plan_angle);
+        drive_at(plan_speed_mps, dir * plan_angle);
+    } else if (s < 2.0f * plan_len_m) {
+        ha_deg(-dir * plan_angle);
+        drive_at(plan_speed_mps, -dir * plan_angle);
+    } else {
+        ha(0);
+        drive_at(plan_speed_mps, 0);
+        reset_distance();                          // ここからは線を探した距離を数える
+        cnt1 = 0;
+        pattern = lane_pt(right, PT_LANE_R_SPOST, PT_LANE_L_SPOST) + stage;
+    }
+}
+
+//**********************************************************************
+// pattern 380〜390 / 680〜690 : 円弧を走り終えた後、新しい線を探す（USE_NEW_LANE_STEER）
+//   線が通常走行の表にある形で見えたら通常走行へ。手前側の端にだけ見えたら（横に動き足りない）元の処理 400 / 700 へ
+//   それ以外の形で見えたら（速さの推定の誤差で、行き過ぎた場合など）、線の方へハンドルを切る。
+//   角度は線の位置から計算し（ピュアパシュート）、今の速さで横すべりしない角度までにする
+//   LANE_SEARCH_M 走っても見えなければ、新しい車線の側へ LANE_STRAIGHT_ANGLE だけハンドルを切る
+//**********************************************************************
+void run_lane_spost(int stage, bool right) {
+    unsigned char c = sensor_inp(MASK4_4);
+    if (find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
+        led_out(0x0);
+        cnt1 = 0;
+        pattern = PT_TRACE;
+        return;
+    }
+    if (lane_new_line_found(c, right)) {
+        cnt1 = 0;
+        pattern = lane_pt(right, PT_LANE_R_ALIGN, PT_LANE_L_ALIGN) + stage;
+        return;
+    }
+    float ang = 0.0f;
+    if (c != 0) {
+        float lim = angle_for_radius(plan_speed_mps * plan_speed_mps / GRIP_LAT_USE);
+        ang = (float)pursuit_angle(c);
+        if (ang > lim) ang = lim;
+        if (ang < -lim) ang = -lim;
+    } else if (dist_m > LANE_SEARCH_M) {
+        ang = right ? LANE_STRAIGHT_ANGLE : -LANE_STRAIGHT_ANGLE;
+    }
+    ha_deg(ang);
+    drive_at(plan_speed_mps, ang);
 }
 
 //**********************************************************************

@@ -51,11 +51,17 @@ void run_crank_search(void) {
     apply_table(LINE_STEER_SENSOR, LINE_STEER_ACT, LINE_STEER_N, c);
 
     if (c == 0xe0 || c == 0xf0 || c == 0xf8 || c == 0xfc) {        // 左クランク
+#if USE_NEW_CRANK_TURN
+        if (crank_start_arc(false)) return;                         // 計算した円弧で曲がる
+#endif
         led_out(0x1);
         ha(-CRANK_ANGLE);
         cnt1 = 0;
         pattern = PT_CRANK_L_ENTER;
     } else if (c == 0x07 || c == 0x0f || c == 0x1f || c == 0x3f) { // 右クランク
+#if USE_NEW_CRANK_TURN
+        if (crank_start_arc(true)) return;
+#endif
         led_out(0x2);
         ha(CRANK_ANGLE);
         cnt1 = 0;
@@ -138,6 +144,80 @@ void run_crank_outside(bool right) {
     // 中央線が見えたら復帰処理へ（cnt1 は0にしない）
     if (c == 0x83 || c == 0x81 || c == 0xc1) {
         pattern = right ? PT_CRANK_R_RETURN : PT_CRANK_L_RETURN;
+    }
+}
+
+//**********************************************************************
+// クランクを見つけた時に、計算した円弧で曲がれるか調べて、曲がれるなら pattern 112 / 152 へ（USE_NEW_CRANK_TURN）
+//   戻り値 true: 円弧で曲がる  false: 曲がれないので元の方法で曲がる
+//**********************************************************************
+bool crank_start_arc(bool right) {
+    float r, wait;
+    float v = speed_mps;
+    if (!crank_plan(v, &r, &wait)) return false;
+    float v_turn = corner_speed(1.0f / r);
+    if (v > v_turn * PLAN_OVERSPEED) return false; // 速すぎて、この円弧では横すべりする
+
+    plan_wait_m = wait;
+    plan_len_m = r * PI_F * 0.5f;                  // 90°分の円弧の長さ
+    plan_speed_mps = v_turn;
+    plan_angle = angle_for_radius(r);
+    reset_distance();                              // ここから距離を数える
+    led_out(right ? 0x2 : 0x1);
+    cnt1 = 0;
+    pattern = right ? PT_CRANK_R_ARC : PT_CRANK_L_ARC;
+    run_crank_arc(right);                          // この1msの出力もすぐ出す
+    return true;
+}
+
+//**********************************************************************
+// pattern 112 / 152 : 計算した円弧で曲がる（USE_NEW_CRANK_TURN）
+//   ① plan_wait_m だけ直進 → ② plan_angle で plan_len_m（90°分）走る → ③ ハンドルを戻して線を見つけたら通常走行へ
+//   円弧の CRANK_ARC_EXIT_RATIO 以上を走った後に新しい線が中央付近に見えたら、その時点で通常走行へ
+//   外側の白線が見えたら（はみ出した）元の処理 121 / 161 へ
+//**********************************************************************
+void run_crank_arc(bool right) {
+    unsigned char c = sensor_inp(MASK4_4);
+    const int dir = right ? 1 : -1;
+    float s = dist_m - plan_wait_m;                // 円弧に入ってからの距離
+
+    if (s < 0.0f) {                                // ① まだ曲がり始めない
+        ha(0);
+        drive_at(plan_speed_mps, 0);
+        return;
+    }
+    if (right ? (c == 0x80 || c == 0xc0) : (c == 0x01 || c == 0x03)) {   // 外側の白線
+        cnt1 = 0;
+        pattern = right ? PT_CRANK_R_OUTSIDE : PT_CRANK_L_OUTSIDE;
+        return;
+    }
+    if (s >= plan_len_m * CRANK_ARC_EXIT_RATIO) {
+        bool found = right ? (c == 0x0e || c == 0x0c || c == 0x1c || c == 0x18)
+                           : (c == 0x70 || c == 0x30 || c == 0x38 || c == 0x18);
+        if (found) {
+            led_out(0x0);
+            cnt1 = 0;
+            pattern = PT_TRACE;
+            return;
+        }
+    }
+    if (s < plan_len_m) {
+        ha_deg(dir * plan_angle);                  // ② 円弧
+        drive_at(plan_speed_mps, dir * plan_angle);
+        return;
+    }
+    // ③ 90°分の指令を出し終えた。サーボが戻りきるまでは車はまだ曲がっているので、その間は線を待つ
+    ha(0);
+    drive_at(plan_speed_mps, 0);
+    if (find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
+        led_out(0x0);
+        cnt1 = 0;
+        pattern = PT_TRACE;                        // 線が見えた → 通常走行
+        return;
+    }
+    if (s >= plan_len_m + plan_speed_mps * servo_delay_s(plan_angle) * 2.0f) {
+        cnt1 = 0;
+        pattern = right ? PT_CRANK_R_RETURN : PT_CRANK_L_RETURN;   // それでも見えない → 元の復帰処理
     }
 }
 

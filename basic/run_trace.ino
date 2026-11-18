@@ -70,8 +70,18 @@ void run_trace(int stage) {
 
     // 表に従ってハンドルとモータを出力
     int i = apply_table(TRACE_SENSOR, TRACE_ACT[stage], TRACE_N, c);
+#if USE_NEW_STEER || USE_NEW_TRACE_SPEED
+    if (i >= 0) {
+        int ang = TRACE_ACT[stage][i].ang;
+#if USE_NEW_STEER
+        ang = pursuit_angle(c);              // ハンドル角度を線の位置から計算して置き換える
+        ha(ang);
+#endif
 #if USE_NEW_TRACE_SPEED
-    if (i >= 0) trace_motor_new(TRACE_ACT[stage][i].ang);   // モータ値だけ計算で置き換える
+        trace_motor_new(ang);                // モータ値をハンドル角度から計算して置き換える
+#endif
+        (void)ang;
+    }
 #else
     (void)i;
 #endif
@@ -104,11 +114,19 @@ void run_curve(int stage, bool right) {
         return;
     }
 
+    int i;
     if (right) {
-        apply_table(CURVE_R_SENSOR, CURVE_R_ACT[stage], CURVE_R_N, c);
+        i = apply_table(CURVE_R_SENSOR, CURVE_R_ACT[stage], CURVE_R_N, c);
     } else {
-        apply_table(CURVE_L_SENSOR, CURVE_L_ACT[stage], CURVE_L_N, c);
+        i = apply_table(CURVE_L_SENSOR, CURVE_L_ACT[stage], CURVE_L_N, c);
     }
+#if USE_NEW_CURVE_SPEED
+    if (i >= 0) {                            // モータ値をハンドル角度から計算して置き換える
+        trace_motor_new(right ? CURVE_R_ACT[stage][i].ang : CURVE_L_ACT[stage][i].ang);
+    }
+#else
+    (void)i;
+#endif
 }
 
 //**********************************************************************
