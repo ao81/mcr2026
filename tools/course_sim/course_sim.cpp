@@ -5,7 +5,7 @@
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
 //       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r
 //       sensor_to_axle half_w front ms trace spot dip approach dump
-//     dump=N : N ms ごとの状態を、視覚的なシミュレータ（view.sh / viewer.html）が読む形で出力する
+//     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
 //   車の動き（後輪の軸の中心で計算）
 //     ・速さ : dv/dt = (出力の平均/100 × v_max − v) ÷ tau

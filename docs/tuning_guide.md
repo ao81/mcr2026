@@ -361,11 +361,12 @@ Basicマイコンカーには、速さを直接測るセンサ（エンコーダ
 
 `config.h` の値を変えたときに、クランク・レーンチェンジ・カーブを計算どおりに曲がれるかを PC で確かめられます。
 
+いちばん手軽なのは、`tools/course_sim/simulator.html` をダブルクリックしてブラウザで開く方法です。コース、スイッチ、`config.h` の新しいアルゴリズムの値、本当の車の値（グリップなど）を画面で選ぶと、その場で走らせて、車の動きとグラフを表示します。コマンドで使う場合は次のとおりです。
+
 ```sh
 tools/course_sim/compare.sh                       # 元と新しい方法をまとめて比べる
 tools/course_sim/run.sh all crank_l lane_r avg=1  # すべて新しくして、クランクとレーンチェンジだけ
 tools/course_sim/run.sh all crank_l grip_lat=7.2 avg=1   # 本当の横のグリップが 10% 低かったら
-tools/course_sim/view.sh crank_l off all          # 元とすべて新しくした走りを、ブラウザで動かして見る
 ```
 
 実機で測った値を `config.h` に入れたら、まず模擬で失敗しないことを確かめてから実機で走らせると、試す回数を減らせます。詳しくは `tools/course_sim/README.md` にあります。
