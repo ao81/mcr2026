@@ -76,7 +76,7 @@ void sp(int accele_l, int accele_r) {
 
 #if USE_NEW_TRACTION
     // 走行中は、タイヤがすべらない範囲に制限する（speed_model.ino）。停止した後は制限しない
-    if (pattern >= PT_RUN_FIRST && pattern <= PT_RUN_LAST) {
+    if (model_ok && pattern >= PT_RUN_FIRST && pattern <= PT_RUN_LAST) {
         traction_limit(&accele_l, &accele_r);
     }
 #endif
@@ -109,14 +109,20 @@ void sp(int accele_l, int accele_r) {
 //**********************************************************************
 void ha(int angle) {
     log_raw.ang = angle;
+    steer_cmd_deg = angle;           // サーボの角度の推定に使う（speed_model.ino）
     GTIOC1B = SERVO_CENTER + SERVO_DIR * angle * HANDLE_STEP;
 }
 
 //**********************************************************************
 // サーボ（ハンドル）を小数の角度で動かす（新しい走行アルゴリズムで、計算した角度をそのまま出すときに使う）
 //   1度 = HANDLE_STEP なので、1/HANDLE_STEP 度きざみで出せる。ログには四捨五入した角度を記録する
+//   計算の値がおかしい（数でない・大きすぎる）ときにサーボを振り切らないよう、±SERVO_MAX_ANGLE に収める
 //**********************************************************************
 void ha_deg(float angle) {
+    if (!finite_f(angle)) angle = 0.0f;
+    if (angle > SERVO_MAX_ANGLE) angle = SERVO_MAX_ANGLE;
+    if (angle < -SERVO_MAX_ANGLE) angle = -SERVO_MAX_ANGLE;
+    steer_cmd_deg = angle;
     int a = (int)(angle >= 0.0f ? angle + 0.5f : angle - 0.5f);
     log_raw.ang = a;
     float step = angle * HANDLE_STEP;

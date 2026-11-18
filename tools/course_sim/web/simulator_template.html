@@ -168,7 +168,7 @@
 
   <div class="col">
     <div class="card" id="viewWrap"><canvas id="view"></canvas><div class="overlay" id="status"></div>
-      <div class="overlay" id="hint">ホイール: 拡大　ドラッグ: 移動　ダブルクリック: 全体　スペース: 再生　←→: 10ms　1〜6: コース</div></div>
+      <div class="overlay" id="hint">ホイール: 拡大　ドラッグ: 移動　ダブルクリック: 全体　スペース: 再生　←→: 10ms　1〜8: コース</div></div>
     <div class="card" id="controls">
       <button id="play" class="primary">▶ 再生</button>
       <button id="back" title="10ms 戻す（←、Shift+← で 100ms）">−10</button>
@@ -255,8 +255,9 @@ const SW_LABEL = {
   USE_NEW_TRACTION: "加速の制限", USE_NEW_TRACE_SPEED: "通常走行の速さ", USE_NEW_CURVE_SPEED: "大曲がりの速さ",
   USE_NEW_STEER: "通常走行のハンドル", USE_NEW_CRANK_BRAKE: "クランク手前の減速", USE_NEW_CRANK_TURN: "クランクの円弧",
   USE_NEW_LANE_BRAKE: "レーンチェンジ手前の減速", USE_NEW_LANE_STEER: "レーンチェンジのS字", USE_NEW_VMAX_LEARN: "出力100%の速さの学習",
+  USE_NEW_LINE_SHAPE: "線の形の推定", USE_NEW_CURVE_PREVIEW: "カーブの先読み", USE_NEW_BRAKE_RANGE: "減速の距離を全部使う",
 };
-const COURSES = [["crank_l", "左クランク"], ["crank_r", "右クランク"], ["lane_l", "左レーン"], ["lane_r", "右レーン"], ["curve_l", "左カーブ"], ["curve_r", "右カーブ"]];
+const COURSES = [["crank_l", "左クランク"], ["crank_r", "右クランク"], ["lane_l", "左レーン"], ["lane_r", "右レーン"], ["curve_l", "左カーブ"], ["curve_r", "右カーブ"], ["s_l", "左S字"], ["s_r", "右S字"]];
 // course_sim の「本当の値」。cfg は初期値になる config.h の名前（空欄ならその値）。prog はプログラム側の値（すべての走りに入れる）
 const COURSE_OPTS = [
   { k: "approach", label: "スタートから特別な線（カーブは入口）まで [m]", def: 1.5 },
@@ -265,6 +266,8 @@ const COURSE_OPTS = [
   { k: "lane_sec", label: "切れ目から新しい車線だけになるまで [m]", cfg: "LANE_SECTION_M", only: "lane" },
   { k: "lane_new", label: "切れ目から新しい車線の線が始まるまで [m]", def: 0, only: "lane" },
   { k: "curve_r", label: "カーブの半径 [m]（180° のカーブ）", def: 0.45, only: "curve" },
+  { k: "s_rad", label: "S字の円弧の半径 [m]", def: 0.8, only: "s" },
+  { k: "s_deg", label: "S字の円弧1つで曲がる角度 [度]", def: 90, only: "s" },
   { k: "line_w", label: "クロス・ハーフラインの白の幅 [m]", def: 0.032, only: "crank lane" },
   { k: "auto_stop", label: "スタートから自動停止まで [ms]", code: "AUTO_STOP_MS", cfg: "AUTO_STOP_MS", prog: true },
   { k: "ms", label: "模擬する時間の上限 [ms]", def: 6000, ph: "自動" },
@@ -438,7 +441,7 @@ function buildOptRows(el, list, store, filter) {
 }
 function buildEnv() {
   buildOptRows($("courseOpts"), COURSE_OPTS, S.copt, kindOf(S.course));
-  $("syncRow").style.display = kindOf(S.course) === "curve" ? "none" : "";
+  $("syncRow").style.display = (kindOf(S.course) === "curve" || kindOf(S.course) === "s") ? "none" : "";
   $("syncDist").checked = S.sync;
   buildOptRows($("carOpts"), CAR_OPTS, S.car, null);
   updateCounts();
@@ -466,6 +469,8 @@ function cfgValues(run) {
 // basic.ino の static_assert と同じ確認
 function checkRun(v) {
   const g = n => v[BY_NAME[n].i];
+  if (g("USE_NEW_LINE_SHAPE") && !g("USE_NEW_STEER")) return "USE_NEW_LINE_SHAPE は USE_NEW_STEER と一緒に 1 にしてください（実機ではコンパイルできません）";
+  if (g("USE_NEW_CURVE_PREVIEW") && !g("USE_NEW_TRACE_SPEED")) return "USE_NEW_CURVE_PREVIEW は USE_NEW_TRACE_SPEED と一緒に 1 にしてください（実機ではコンパイルできません）";
   if (g("USE_NEW_LANE_BRAKE") && !g("USE_NEW_LANE_STEER")) return "USE_NEW_LANE_BRAKE は USE_NEW_LANE_STEER と一緒に 1 にしてください（実機ではコンパイルできません）";
   if (g("USE_NEW_CRANK_BRAKE") && !g("USE_NEW_CRANK_TURN") && !(g("CRANK_ENTRY_MPS") > 0))
     return "USE_NEW_CRANK_TURN が 0 のときは、CRANK_ENTRY_MPS に元の曲がり方でうまく曲がれる速さ（例 1.4）を入れてください（実機ではコンパイルできません）";
@@ -779,7 +784,7 @@ document.addEventListener("keydown", e => {
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
   else if (e.code === "ArrowLeft") { e.preventDefault(); setT(t - (e.shiftKey ? 100 : 10)); }
   else if (e.code === "ArrowRight") { e.preventDefault(); setT(t + (e.shiftKey ? 100 : 10)); }
-  else if (/^Digit[1-6]$/.test(e.code)) setCourse(COURSES[+e.code.slice(5) - 1][0]);
+  else if (/^Digit[1-8]$/.test(e.code)) setCourse(COURSES[+e.code.slice(5) - 1][0]);
 });
 view.addEventListener("wheel", e => {
   e.preventDefault();

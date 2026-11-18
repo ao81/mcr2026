@@ -11,12 +11,24 @@ void run_cross_found(void) {
     line_pass_state = PASS_WAIT;
     cnt1 = 0;
     pattern = PT_CROSS_PASS;
+#if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
+    // センサはクロスラインの始まりにいる。ラインの終わりまでは CROSS_LINE_WIDTH_M あるので、距離をその分マイナスから数え、
+    // 通過時間を測り終わるのを待たずに、今の速さの推定で減速を始める（通過し終えたら測った速さで計算し直す）
+    if (model_ok) {
+        reset_distance();
+        dist_m = -CROSS_LINE_WIDTH_M;
+        crank_speed_control_new();
+    }
+#endif
 }
 
 //**********************************************************************
 // pattern 101 : クロスラインの通過時間を測る（速いほど短い）
 //**********************************************************************
 void run_cross_pass(void) {
+#if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
+    if (model_ok) crank_speed_control_new();       // 通過中も減速の計算を続ける
+#endif
     measure_line_pass(check_crossline());
     if (line_pass_state == PASS_DONE) {
         speed_measure_by_line(CROSS_LINE_WIDTH_M, line_pass_ms);   // 通過時間から速さを測り直す
@@ -152,11 +164,17 @@ void run_crank_outside(bool right) {
 //   戻り値 true: 円弧で曲がる  false: 曲がれないので元の方法で曲がる
 //**********************************************************************
 bool crank_start_arc(bool right) {
+    if (!model_ok) return false;                   // 速さの推定が当てにならないときは元の方法で曲がる
     float r, wait;
     float v = speed_mps;
     if (!crank_plan(v, &r, &wait)) return false;
     float v_turn = corner_speed(1.0f / r);
-    if (v > v_turn * PLAN_OVERSPEED) return false; // 速すぎて、この円弧では横すべりする
+    float v_chk = v;
+#if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
+    // 円弧に入るまでの直進とサーボの遅れの間も減速を続けるので、円弧に入る時の速さで判断する
+    v_chk = speed_after_brake(v, pre_turn_m(v, r, wait));
+#endif
+    if (v_chk > v_turn * PLAN_OVERSPEED) return false; // 速すぎて、この円弧では横すべりする
 
     plan_wait_m = wait;
     plan_len_m = r * PI_F * 0.5f;                  // 90°分の円弧の長さ
@@ -240,8 +258,10 @@ void crank_check_lost(unsigned char c, bool right) {
 //**********************************************************************
 void crank_speed_control(void) {
 #if USE_NEW_CRANK_BRAKE
-    crank_speed_control_new();
-    return;
+    if (model_ok) {                                // 速さの推定が当てにならないときは元の表で減速する
+        crank_speed_control_new();
+        return;
+    }
 #endif
     int i = clamp_int(line_pass_ms - CRANK_K_MIN, 0, CRANK_STEPS - 1);
     long t = (long)cnt1;

@@ -37,6 +37,9 @@ static_assert(!(USE_NEW_LANE_BRAKE && !USE_NEW_LANE_STEER),
 //   クランクに入る速さの自動計算（0）は、円弧で曲がる場合の値。元の曲がり方で使うときは、うまく曲がれる速さを入れる
 static_assert(!(USE_NEW_CRANK_BRAKE && !USE_NEW_CRANK_TURN) || (CRANK_ENTRY_MPS > 0.0f),
               "USE_NEW_CRANK_TURN が 0 のときは、CRANK_ENTRY_MPS に元の曲がり方でうまく曲がれる速さ（例 1.4）を入れてください");
+//   線の形の推定は USE_NEW_STEER のハンドル角度を、先読みは USE_NEW_TRACE_SPEED の速さを変えるもの。単独では働かない
+static_assert(!(USE_NEW_LINE_SHAPE && !USE_NEW_STEER), "USE_NEW_LINE_SHAPE は USE_NEW_STEER と一緒に 1 にしてください");
+static_assert(!(USE_NEW_CURVE_PREVIEW && !USE_NEW_TRACE_SPEED), "USE_NEW_CURVE_PREVIEW は USE_NEW_TRACE_SPEED と一緒に 1 にしてください");
 
 #define timer(x) delay(x)    // timer関数=delay関数
 
@@ -209,6 +212,12 @@ void plan_setup(void);
 float line_position_m(unsigned char c);
 float pursuit_lookahead_m(void);
 int pursuit_angle(unsigned char c);
+void line_obs_update(unsigned char c);
+float line_obs_angle(void);
+void lane_table_setup(void);
+int lane_table_plan(float v, float x_start, float* r_out, float* len_out, float* wait_out, float* x_used);
+int lane_new_ok_robust(float len, float d, float x_start, float f_end, float u);
+float pre_turn_m(float v, float r, float wait);
 // speed_model.ino
 float curvature_of_angle(float angle);
 float accel_up_limit(float v, float k_abs);
@@ -225,6 +234,15 @@ void drive_at(float v_target, float angle);
 float corner_speed(float k_abs);
 void trace_motor_new(int angle);
 void traction_limit(int* power_l, int* power_r);
+void servo_model_update(void);
+float servo_last_cmd(void);
+float long_avail_use(float v, float k_abs);
+float speed_after_brake(float v, float d);
+void drive_wheels(float u, float k);
+void drive_center(float u, float k);
+void trace_motor_preview(float k_ahead);
+bool finite_f(float x);
+int model_check_config(void);
 // sdlog.ino
 void log_setup(void);
 void log_sample(void);
@@ -254,6 +272,7 @@ volatile int line_pass_ms;             // ラインの通過時間[ms]（元: ky
 volatile int f_setup_end;              // setup が終わったら 1
 volatile float speed_mps;              // 推定した車の速さ [m/s]（speed_model.ino）
 volatile float v_max_mps;              // 出力100%のときの速さ [m/s]。初めは V_MAX_MPS、USE_NEW_VMAX_LEARN で走りながら直す
+float vmax_var;                        // v_max_mps の当てにならなさ（相対誤差の2乗。USE_NEW_VMAX_LEARN）
 volatile float dist_m;                 // ラインの終わりからの走行距離 [m]（speed_model.ino）
 volatile int brake_started;            // 1: 計算による減速でブレーキを始めた（speed_model.ino）
 float crank_entry_mps;                 // クランクに入る速さ [m/s]（planner.ino の plan_setup で決める）
@@ -265,6 +284,20 @@ volatile float plan_speed_mps;         // 計算した経路：走る速さ [m/s
 volatile float plan_angle;             // 計算した経路：ハンドル角度 [度]（向きは呼ぶ側で付ける）
 volatile float trace_k_filt;           // 通常走行の速さを決める曲率をならした値 [1/m]（speed_model.ino）
 volatile float lane_offset_m;          // 中央線が切れる直前の、線に対する車の横の位置 [m]（右がプラス）
+volatile int model_ok;                 // 1: 速度の推定を使ってよい。config.h の値がおかしいときや、ラインで測った速さと推定が大きく違い続けたときは 0 にして、元の表の動きに戻す
+volatile int model_bad_cnt;            // ラインで測った速さと推定が大きく違った回数（続けて）
+volatile float steer_cmd_deg;          // 最後に出したハンドル角度の指令 [度]（小数。ha / ha_deg で記録）
+volatile float servo_est_deg;          // サーボの本当の角度の推定 [度]（speed_model.ino の servo_model_update）
+volatile float car_k_eff;              // 車が本当に曲がっている曲率の推定 [1/m]（摩擦円を超えた分は小さくなる。speed_model.ino）
+volatile float obs_z1;                 // センサの所での線の横の位置の推定 [m]（右がプラス。planner.ino の line_obs_update）
+volatile float obs_z2;                 // センサの所での線の向きの推定 [rad]（車の向きに対して。右へ向かうとプラス）
+volatile float obs_z3;                 // センサの所での線の曲がり具合（曲率）の推定 [1/m]（右に曲がるとプラス）
+volatile unsigned long line_obs_ms;    // 最後に推定した時の cnt0（1ms あいたら推定をやり直す）
+float pursuit_ld;                      // ピュアパシュートで線を見る距離 [m]（plan_setup で計算しておく）
+float obs_k_lim = 10.0f;               // 線の曲がり具合の推定の上限 [1/m]（plan_setup で計算しておく）
+float trace_v_cap;                     // 直線の速さの上限 [m/s]（TRACE_SAFE_RADIUS_M。0 なら上限なし）
+float crank_extra_m;                   // クランクの線を見つけてから円弧に入るまでに進む距離 [m]（USE_NEW_BRAKE_RANGE）
+float lane_extra_m;                    // 中央線の切れ目を見つけてからS字に入るまでに進む距離 [m]（同上）
 
 FspTimer fsp_timer;                    // 1ms割り込み用タイマ
 
@@ -335,6 +368,7 @@ void setup() {
     line_pass_state = PASS_WAIT;
     line_pass_ms = 0;
     v_max_mps = V_MAX_MPS;  // 出力100%のときの速さ（speed_model.ino）
+    vmax_var = VMAX_LEARN_SD * VMAX_LEARN_SD;
 
     // AGT 1msごとの割り込み  PCLKB=24MHz, 1分周 → 24000カウントで1ms（設定値は1小さい23999）
     fsp_timer.begin(TIMER_MODE_PERIODIC, AGT_TIMER, 1, 23999, 1, (timer_source_div_t)TIMER_SOURCE_DIV_1, AGTCallback);
@@ -413,7 +447,7 @@ void AGTCallback(timer_callback_args_t __attribute((unused))* p_args) {
 
     run_pattern();
 
-    speed_model_update();                // 出したモータ出力から速さと距離を計算（speed_model.ino）
+    speed_model_update();                // 出したモータ出力から速さと距離、サーボの角度を計算（speed_model.ino）
 }
 
 //***********************************************************************

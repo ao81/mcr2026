@@ -21,4 +21,11 @@ for r in 0.8 1.0 1.5; do
     "$HERE/run.sh" "$mode" curve_l curve_r curve_r=$r avg=1 "$@"
   done
 done
+for r in 0.8 1.0; do
+  echo "=== 半径 ${r} m の S字（90° ずつ、直線 1.5m の後）==="
+  for mode in off all; do
+    echo "--- $mode"
+    "$HERE/run.sh" "$mode" s_l s_r s_rad=$r avg=1 "$@"
+  done
+done
 exit 0

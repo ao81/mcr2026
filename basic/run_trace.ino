@@ -50,9 +50,19 @@ void run_wait_start(void) {
 //**********************************************************************
 void run_trace(int stage) {
     // 特殊なラインの検出
-    if (check_crossline())    { cnt1 = 0; pattern = PT_CROSS_FOUND;  return; }
-    if (check_shasenhenkoum()) { cnt1 = 0; pattern = PT_LANE_R_FOUND; return; }
-    if (check_shasenhenkouh()) { cnt1 = 0; pattern = PT_LANE_L_FOUND; return; }
+    bool check_lines = true;
+#if USE_NEW_LINE_SHAPE || USE_NEW_CURVE_PREVIEW
+    // クロスライン・ハーフラインは直線にある。急なカーブの途中で線を斜めに見ていると、
+    // 線1本がハーフラインと同じ並びに見えることがあるので、推定した線の向きが LINE_CHECK_MAX_ANGLE より
+    // 大きく、しかもハンドルを LINE_CHECK_MIN_STEER より大きく切っている間だけ探さない（両方が外れることはまずない）
+    if (cnt0 - line_obs_ms <= 20 && fabsf(obs_z2) > LINE_CHECK_MAX_ANGLE &&
+        fabsf(servo_est_deg) > LINE_CHECK_MIN_STEER) check_lines = false;
+#endif
+    if (check_lines) {
+        if (check_crossline())    { cnt1 = 0; pattern = PT_CROSS_FOUND;  return; }
+        if (check_shasenhenkoum()) { cnt1 = 0; pattern = PT_LANE_R_FOUND; return; }
+        if (check_shasenhenkouh()) { cnt1 = 0; pattern = PT_LANE_L_FOUND; return; }
+    }
 
     unsigned char c = sensor_inp(MASK4_4);
 
@@ -70,15 +80,30 @@ void run_trace(int stage) {
 
     // 表に従ってハンドルとモータを出力
     int i = apply_table(TRACE_SENSOR, TRACE_ACT[stage], TRACE_N, c);
+#if USE_NEW_LINE_SHAPE || USE_NEW_CURVE_PREVIEW
+    line_obs_update(c);                      // 線の位置・向き・曲がり具合を推定（planner.ino）
+#endif
 #if USE_NEW_STEER || USE_NEW_TRACE_SPEED
     if (i >= 0) {
-        int ang = TRACE_ACT[stage][i].ang;
+        float ang = TRACE_ACT[stage][i].ang;
 #if USE_NEW_STEER
         ang = pursuit_angle(c);              // ハンドル角度を線の位置から計算して置き換える
-        ha(ang);
+#if USE_NEW_LINE_SHAPE
+        ang = line_obs_angle();              // 推定した線の形と、サーボの遅れの分だけ先の位置から決める
+        ha_deg(ang);
+#else
+        ha((int)ang);
+#endif
 #endif
 #if USE_NEW_TRACE_SPEED
-        trace_motor_new(ang);                // モータ値をハンドル角度から計算して置き換える
+        if (model_ok) {
+#if USE_NEW_CURVE_PREVIEW
+            // 推定したセンサの所の曲がり具合（この先の曲がり具合）でも速さを決める（speed_model.ino）
+            trace_motor_preview(obs_z3);
+#else
+            trace_motor_new((int)ang);       // モータ値をハンドル角度から計算して置き換える
+#endif
+        }
 #endif
         (void)ang;
     }
@@ -120,9 +145,18 @@ void run_curve(int stage, bool right) {
     } else {
         i = apply_table(CURVE_L_SENSOR, CURVE_L_ACT[stage], CURVE_L_N, c);
     }
+#if USE_NEW_LINE_SHAPE || USE_NEW_CURVE_PREVIEW
+    // 大曲がりの間も線の形の推定を続ける（通常走行に戻った時に、カーブの途中から推定し直さなくてよいように）
+    if (c == 0x03 || c == 0xc0 || c == 0x07 || c == 0xe0) line_obs_update(c);
+    else line_obs_update(0x00);              // 線が端より外にあるかもしれない形のときは、予測だけ進める
+#endif
 #if USE_NEW_CURVE_SPEED
-    if (i >= 0) {                            // モータ値をハンドル角度から計算して置き換える
+    if (i >= 0 && model_ok) {                // モータ値をハンドル角度から計算して置き換える
+#if USE_NEW_CURVE_PREVIEW
+        trace_motor_preview(obs_z3);
+#else
         trace_motor_new(right ? CURVE_R_ACT[stage][i].ang : CURVE_L_ACT[stage][i].ang);
+#endif
     }
 #else
     (void)i;

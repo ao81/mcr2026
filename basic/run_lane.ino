@@ -30,6 +30,14 @@ void run_lane_found(bool right) {
     line_pass_state = PASS_WAIT;
     cnt1 = 0;
     pattern = lane_pt(right, PT_LANE_R_PASS, PT_LANE_L_PASS);
+#if USE_NEW_BRAKE_RANGE && USE_NEW_LANE_BRAKE
+    // センサはハーフラインの始まりにいる。距離をラインの幅の分マイナスから数え、すぐに減速の計算を始める
+    if (model_ok) {
+        reset_distance();
+        dist_m = -HALF_LINE_WIDTH_M;
+        lane_speed_control_new();
+    }
+#endif
 }
 
 //**********************************************************************
@@ -41,6 +49,9 @@ void run_lane_pass(bool right) {
         pattern = PT_CROSS_FOUND;
         return;
     }
+#if USE_NEW_BRAKE_RANGE && USE_NEW_LANE_BRAKE
+    if (model_ok) lane_speed_control_new();        // 通過中も減速の計算を続ける
+#endif
     measure_line_pass(right ? check_shasenhenkoum() : check_shasenhenkouh());
     if (line_pass_state == PASS_DONE) {
         speed_measure_by_line(HALF_LINE_WIDTH_M, line_pass_ms);    // 通過時間から速さを測り直す
@@ -209,12 +220,23 @@ void run_lane_recover(int stage, bool right) {
 //   戻り値 true: 円弧で曲がる  false: 元の方法で曲がる
 //**********************************************************************
 bool lane_start_scurve(int stage, bool right) {
+    if (!model_ok) return false;                   // 速さの推定が当てにならないときは元の方法で曲がる
     float r, len, wait;
     float v = speed_mps;
     float x_start = right ? lane_offset_m : -lane_offset_m;   // 車線を変える側へずれている分
-    if (!lane_plan(v, x_start, &r, &len, &wait)) return false;
+    float x_used = x_start;
+    // 経路は setup で計算した表から引く（planner.ino）。表で足りないときだけ、ここで計算する
+    if (!lane_table_plan(v, x_start, &r, &len, &wait, &x_used)) {
+        if (!lane_plan(v, x_start, &r, &len, &wait)) return false;
+    }
+    x_start = x_used;
     float v_turn = corner_speed(1.0f / r);
-    if (v > v_turn * PLAN_OVERSPEED) return false; // 速すぎて、この円弧では横すべりする
+    float v_chk = v;
+#if USE_NEW_BRAKE_RANGE && USE_NEW_LANE_BRAKE
+    // S字に入るまでの直進とサーボの遅れの間も減速を続けるので、S字に入る時の速さで判断する
+    v_chk = speed_after_brake(v, pre_turn_m(v, r, wait));
+#endif
+    if (v_chk > v_turn * PLAN_OVERSPEED) return false; // 速すぎて、この円弧では横すべりする
 
     float d = LANE_SHIFT_M - x_start;              // 横に動く距離
     float phi = 2.0f * atanf(d / len);             // 円弧1つで回る角度 [rad]
@@ -300,8 +322,10 @@ void run_lane_spost(int stage, bool right) {
 //**********************************************************************
 void lane_speed_control(void) {
 #if USE_NEW_LANE_BRAKE
-    lane_speed_control_new();
-    return;
+    if (model_ok) {                                // 速さの推定が当てにならないときは元の表で減速する
+        lane_speed_control_new();
+        return;
+    }
 #endif
     int i = clamp_int(line_pass_ms - LANE_K_MIN, 0, LANE_STEPS - 1);
     long t = (long)cnt1;

@@ -6,7 +6,7 @@
 #                 all : USE_NEW_* をすべて 1
 #                 名前=値 : その #define を書き換える。例: all,CROSS_TO_CRANK_M=0.70f
 #                 例: off,USE_NEW_CRANK_TURN=1,USE_NEW_CRANK_BRAKE=1
-#     コース名   crank_l crank_r lane_l lane_r curve_l curve_r（省略するとすべて）
+#     コース名   crank_l crank_r lane_l lane_r curve_l curve_r s_l s_r（省略するとすべて）
 #     名前=値    車とコースの本当の値（course_sim.cpp の先頭を参照）。例: grip_lat=6 v_max=2.7
 #                avg=1 を付けると、スタートから特別な線までの距離を 1.400〜1.500m の7通りに変えて走らせ、
 #                平均の時間・失敗の回数・横Gの最大を1行で出す（ラインの通過時間は1ms単位なので、
@@ -24,7 +24,7 @@ for a in "$@"; do
     *) COURSES+=("$a") ;;
   esac
 done
-[ ${#COURSES[@]} -eq 0 ] && COURSES=(crank_l crank_r lane_l lane_r curve_l curve_r)
+[ ${#COURSES[@]} -eq 0 ] && COURSES=(crank_l crank_r lane_l lane_r curve_l curve_r s_l s_r)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp -r "$ROOT/basic" "$TMP/basic"

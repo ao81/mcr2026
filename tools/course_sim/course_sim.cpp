@@ -1,9 +1,10 @@
 // コースを模擬して、スケッチを PC 上で走らせるシミュレータ（テスト専用。実機では使わない）
 //
 //   使い方: course_sim <コース> [名前=値 ...]
-//     コース: crank_l crank_r lane_l lane_r curve_l curve_r
+//     コース: crank_l crank_r lane_l lane_r curve_l curve_r s_l s_r
+//       s_r / s_l : 直線 → 右（左）へ s_deg 度曲がる半径 s_rad の円弧 → 反対へ s_deg 度の円弧 → 直線（S字）
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
-//       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r
+//       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r s_rad s_deg
 //       sensor_to_axle half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
@@ -35,6 +36,7 @@ extern volatile int pattern;
 extern volatile float speed_mps;
 extern volatile float dist_m, plan_wait_m, plan_len_m, plan_speed_mps;
 extern volatile float plan_angle;
+extern volatile float obs_z1, obs_z2, obs_z3, servo_est_deg;
 void setup();
 void loop();
 void AGTCallback(timer_callback_args_t* p_args);
@@ -61,7 +63,7 @@ struct Shapes {
 struct Course {
     Shapes white;     // 白線
     Shapes surface;   // コースの面
-    int kind = 0;     // 0:crank 1:lane 2:curve
+    int kind = 0;     // 0:crank 1:lane 2:curve 3:S字
     int dir = 1;      // +1 右, -1 左
     double finish = 0;
 };
@@ -69,7 +71,7 @@ struct Course {
 static std::map<std::string, double> P = {
     {"v_max", V_MAX_MPS}, {"tau", MOTOR_TAU_S}, {"grip_lat", GRIP_LAT_MPS2}, {"grip_long", GRIP_LONG_MPS2},
     {"servo_dps", SERVO_SPEED_DPS}, {"servo_dead", SERVO_DEAD_S}, {"line_w", 0.032}, {"cross_to", CROSS_TO_CRANK_M}, {"half_to", HALF_TO_LANE_M},
-    {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
+    {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0},
 };
@@ -104,6 +106,28 @@ static Course make_course(const std::string& name) {
         c.surface.rects.push_back({std::min(-W, d - W), ye, std::max(W, d + W), ye + ls});
         c.surface.rects.push_back({d - W, ye + ls, d + W, ye + 4});
         c.finish = ye + 2.0;
+    } else if (name.rfind("s_", 0) == 0) {
+        // 右の S字: 中心 (R, y1) の円弧で右へ θ 曲がり、中心 (R − 2R cosθ, y1 + 2R sinθ) の円弧で左へ θ 曲がる。
+        // 左の S字はこれを左右に反転する（x → −x、角度 a → π − a）
+        c.kind = 3;
+        double rs = P["s_rad"], th = P["s_deg"] * M_PI / 180;
+        double c1x = rs, c1y = y1;
+        double c2x = rs - 2 * rs * cos(th), c2y = y1 + 2 * rs * sin(th);
+        double ex = 2 * rs - 2 * rs * cos(th), ey = y1 + 2 * rs * sin(th);   // 出口
+        double a1 = M_PI - th, b1 = M_PI, a2 = -th, b2 = 0;
+        if (c.dir < 0) {
+            c1x = -c1x; c2x = -c2x; ex = -ex;
+            a1 = 0; b1 = th; a2 = M_PI; b2 = M_PI + th;
+        }
+        c.white.rects.push_back({-LW, -1, LW, y1});
+        c.white.rings.push_back({c1x, c1y, rs - LW, rs + LW, a1, b1});
+        c.white.rings.push_back({c2x, c2y, rs - LW, rs + LW, a2, b2});
+        c.white.rects.push_back({ex - LW, ey, ex + LW, ey + 4});
+        c.surface.rects.push_back({-W, -1, W, y1});
+        c.surface.rings.push_back({c1x, c1y, rs - W, rs + W, a1, b1});
+        c.surface.rings.push_back({c2x, c2y, rs - W, rs + W, a2, b2});
+        c.surface.rects.push_back({ex - W, ey, ex + W, ey + 4});
+        c.finish = ey + 0.5;
     } else {
         c.kind = 2;
         double rc = P["curve_r"];
@@ -260,13 +284,13 @@ int main(int argc, char** argv) {
             break;
         }
         if ((int)P["trace"] && (t % 10 == 0))
-            printf("t=%ld p=%d s=%02x x=%.3f y=%.3f psi=%.1f v=%.2f steer=%.1f cmd=%.0f pl=%.0f pr=%.0f est=%.2f dist=%.3f plan(wait=%.3f len=%.3f v=%.2f ang=%.1f)\n",
-                   t - t_start, pattern, s, x, y, psi * 180 / M_PI, v, steer, ang_cmd, pl, pr, speed_mps, dist_m,
-                   plan_wait_m, plan_len_m, plan_speed_mps, plan_angle);
+            printf("t=%ld p=%d s=%02x x=%.3f y=%.3f psi=%.1f v=%.2f steer=%.1f(est %.1f) cmd=%.1f pl=%.0f pr=%.0f est=%.2f dist=%.3f obs(%.1fmm %.3f %.2f) plan(wait=%.3f len=%.3f v=%.2f ang=%.1f)\n",
+                   t - t_start, pattern, s, x, y, psi * 180 / M_PI, v, steer, (double)servo_est_deg, ang_cmd, pl, pr, speed_mps, dist_m,
+                   obs_z1 * 1000, (double)obs_z2, (double)obs_z3, plan_wait_m, plan_len_m, plan_speed_mps, plan_angle);
         // ゴール
         bool fin = false;
         if (c.kind == 0) fin = (c.dir > 0) ? (x >= c.finish) : (x <= -c.finish);
-        if (c.kind == 1) fin = (y >= c.finish);
+        if (c.kind == 1 || c.kind == 3) fin = (y >= c.finish);
         if (c.kind == 2) { if (y > P["approach"] + 0.2) passed_mid = true; fin = passed_mid && y <= c.finish; }
         if (fin) { t_finish = t - t_start; break; }
         if (pattern >= 800) break;

@@ -177,6 +177,20 @@ int lane_new_ok(float r, float len, float d, float x_start, float f_end) {
     return 1;
 }
 
+// ② を、走った距離を (1 − LANE_DIST_ERR) 倍に短く走ってしまった場合にも満たすか
+//   距離は推定した速さから求めるので、速さを実際より速く見ていると、どちらの円弧も短く走ってしまう。
+//   半径 r は同じまま、円弧1つで回る角度が φ(1 − e) になる。その時 前向き L' = 2r·sin φ'、横 d' = 2r(1 − cos φ')。
+//   曲がり始めるまでの距離 u も (1 − e) 倍になるので、区間の終わりは u·e だけ遠くなる
+int lane_new_ok_robust(float len, float d, float x_start, float f_end, float u) {
+    float r = lane_r_for(len, d);
+    if (!lane_new_ok(r, len, d, x_start, f_end)) return 0;
+    if (LANE_DIST_ERR <= 0.0f) return 1;
+    float phi = 2.0f * atanf(d / len) * (1.0f - LANE_DIST_ERR);
+    float len2 = 2.0f * r * sinf(phi);
+    float d2 = 2.0f * r * (1.0f - cosf(phi));
+    return lane_new_ok(r, len2, d2, x_start, f_end + u * LANE_DIST_ERR);
+}
+
 //   x_start : 曲がり始める時の、元の線に対する車の横の位置 [m]（車線を変える側がプラス）
 //   計算は 1ms の割り込みの中で行うので、くり返しの回数を少なくしている
 //   計算時間の目安（48MHz、FPU あり）：車体の角の位置1回が約 200 クロック。lane_plan 全体で
@@ -193,10 +207,10 @@ int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* le
         if (f_end <= 0.0f) return 0;
         // ②を満たす一番長い L を二分法で求める（短いほど早く横に動き終わるので②は満たしやすい）
         float lo = 0.05f, hi = f_end + 1.0f;
-        if (!lane_new_ok(lane_r_for(lo, d), lo, d, x_start, f_end)) continue;
+        if (!lane_new_ok_robust(lo, d, x_start, f_end, u)) continue;
         for (int i = 0; i < 14; i++) {
             float mid = (lo + hi) * 0.5f;
-            if (lane_new_ok(lane_r_for(mid, d), mid, d, x_start, f_end)) lo = mid; else hi = mid;
+            if (lane_new_ok_robust(mid, d, x_start, f_end, u)) lo = mid; else hi = mid;
         }
         float r = lane_r_for(lo, d);
         if (r < radius_of_angle(SERVO_MAX_ANGLE)) return 0;
@@ -257,10 +271,94 @@ float lane_turn_speed_auto(void) {
     return corner_speed(1.0f / radius_of_angle(LANE_STEER_ANGLE));
 }
 
-// setup から呼ぶ：クランク・レーンチェンジに入る速さを決めておく
+// 速さ v で半径 r の円弧に入るとき、曲がり角の線（クランク）・中央線の切れ目（レーンチェンジ）を見つけてから、
+// 本当に曲がり始めるまでに進む距離 [m]（わざと待つ距離 wait ＋ サーボが効くまでの遅れの間に進む距離）
+float pre_turn_m(float v, float r, float wait) {
+    return wait + v * servo_delay_s(angle_for_radius(r));
+}
+
+// setup から呼ぶ：走る前に済ませておける計算をしておく（1msの割り込みの中で時間のかかる計算をしないため）
 void plan_setup(void) {
+    model_ok = model_check_config();
+    model_bad_cnt = 0;
     crank_entry_mps = (CRANK_ENTRY_MPS > 0.0f) ? CRANK_ENTRY_MPS : crank_turn_speed_auto();
     lane_entry_mps  = (LANE_ENTRY_MPS  > 0.0f) ? LANE_ENTRY_MPS  : lane_turn_speed_auto();
+    pursuit_ld = pursuit_lookahead_m();
+    obs_k_lim = 2.0f / radius_of_angle(SERVO_MAX_ANGLE);
+
+    // USE_NEW_BRAKE_RANGE：線を見つけてから円弧・S字に入るまでの距離（入る速さで計算）
+    crank_extra_m = 0.0f;
+    lane_extra_m = 0.0f;
+    float r, len, wait;
+#if USE_NEW_CRANK_TURN
+    if (crank_plan(crank_entry_mps, &r, &wait)) crank_extra_m = pre_turn_m(crank_entry_mps, r, wait);
+#endif
+#if USE_NEW_LANE_STEER
+    if (lane_plan(lane_entry_mps, 0.0f, &r, &len, &wait)) lane_extra_m = pre_turn_m(lane_entry_mps, r, wait);
+    lane_table_setup();
+#endif
+    (void)r; (void)len; (void)wait;
+
+    // TRACE_SAFE_RADIUS_M：この半径のカーブが急に来ても間に合う直線の速さ
+    //   センサは後輪の SENSOR_TO_REAR_AXLE_M 前にある。線がセンサのきざみの半分（e）だけ動いたら曲がりに気づけるとすると、
+    //   気づくのはセンサがカーブに √(2·R·e) 入った時。そこから後輪がカーブに着くまでの距離 d で、曲がれる速さまで落とせる速さ
+    //     v = √(v_c² + 2·GRIP_LONG_USE·d)、v_c = √(GRIP_LAT_USE·R)
+    trace_v_cap = 1.0e3f;
+    if (TRACE_SAFE_RADIUS_M > 0.0f) {
+        float pitch = (SENSOR_X_MM[7] - SENSOR_X_MM[0]) / 7.0f * 0.001f;
+        float d = SENSOR_TO_REAR_AXLE_M - sqrtf(2.0f * TRACE_SAFE_RADIUS_M * pitch * 0.5f);
+        if (d < 0.0f) d = 0.0f;
+        trace_v_cap = sqrtf(GRIP_LAT_USE * TRACE_SAFE_RADIUS_M + 2.0f * GRIP_LONG_USE * d);
+    }
+}
+
+//**********************************************************************
+// レーンチェンジの経路の表（USE_NEW_LANE_STEER）
+//   lane_plan は一番遅い場合に約 2.4ms かかり、1msの割り込みに収まらない。そこで、中央線が切れる前の
+//   車の横の位置 x_start を 5mm おきに変えた経路を setup で計算しておき、走行中は表を引くだけにする
+//   （センサは 10mm おきで、線の位置は 5mm きざみで求まるので、ほとんどの場合は表の値そのものになる）
+//   経路は「一番速く受け付ける速さ」（曲がれる速さ × PLAN_OVERSPEED）で計算し、線を見つけてから曲がり始めるまでの
+//   距離 u を覚えておく。走行中の速さ v がそれより遅いときは、待つ距離を u − v·遅れ にすると、同じ位置から同じ経路を走れる
+//**********************************************************************
+#define LANE_TAB_N    17                         // x_start = −40mm 〜 +40mm（5mm おき）
+#define LANE_TAB_MID  8
+#define LANE_TAB_STEP 0.005f
+float lane_tab_r[LANE_TAB_N];
+float lane_tab_len[LANE_TAB_N];
+float lane_tab_u[LANE_TAB_N];
+signed char lane_tab_ok[LANE_TAB_N];
+
+void lane_table_setup(void) {
+    for (int i = 0; i < LANE_TAB_N; i++) {
+        float x = (i - LANE_TAB_MID) * LANE_TAB_STEP;
+        float v = 1.0f, r = 0.0f, len = 0.0f, wait = 0.0f;
+        int ok = 1;
+        for (int k = 0; k < 6 && ok; k++) {      // 曲がれる速さと経路が合うまでくり返す
+            ok = lane_plan(v, x, &r, &len, &wait);
+            if (ok) v = corner_speed(1.0f / r);
+        }
+        float vp = v * PLAN_OVERSPEED;
+        if (ok) ok = lane_plan(vp, x, &r, &len, &wait);
+        lane_tab_ok[i] = (signed char)ok;
+        lane_tab_r[i] = r;
+        lane_tab_len[i] = len;
+        lane_tab_u[i] = ok ? pre_turn_m(vp, r, wait) : 0.0f;
+    }
+}
+
+// 表から経路を引く。戻り値 1: 引けた  0: 表の範囲の外か、速すぎて同じ位置から曲がれない（その場で計算する）
+int lane_table_plan(float v, float x_start, float* r_out, float* len_out, float* wait_out, float* x_used) {
+    float f = x_start / LANE_TAB_STEP;
+    int i = (int)(f >= 0.0f ? f + 0.5f : f - 0.5f) + LANE_TAB_MID;
+    if (i < 0 || i >= LANE_TAB_N || !lane_tab_ok[i]) return 0;
+    float r = lane_tab_r[i];
+    float wait = lane_tab_u[i] - v * servo_delay_s(angle_for_radius(r));
+    if (wait < 0.0f) return 0;
+    *r_out = r;
+    *len_out = lane_tab_len[i];
+    *wait_out = wait;
+    *x_used = (i - LANE_TAB_MID) * LANE_TAB_STEP;
+    return 1;
 }
 
 //**********************************************************************
@@ -299,9 +397,89 @@ float pursuit_lookahead_m(void) {
 int pursuit_angle(unsigned char c) {
     if (c == 0) return 0;
     float e = line_position_m(c);
-    float ld = pursuit_lookahead_m();
+    float ld = pursuit_ld;                        // plan_setup で計算しておいた値（毎ms √ を計算しない）
     float k = 2.0f * e / (ld * ld + e * e);
     float deg = atanf(WHEELBASE_M * k) / DEG_TO_RAD_F;
     int a = (int)(deg >= 0.0f ? deg + 0.5f : deg - 0.5f);
     return clamp_int(a, -SERVO_MAX_ANGLE, SERVO_MAX_ANGLE);
+}
+
+
+//**********************************************************************
+// 線の形の推定（オブザーバ。USE_NEW_LINE_SHAPE / USE_NEW_CURVE_PREVIEW）
+//   センサの所（後輪の軸の Ls = SENSOR_TO_REAR_AXLE_M 前）での線を、横の位置 z1・向き z2・曲がり具合 z3 で表す。
+//   車が ds 進み、その間に曲率 κc（サーボの本当の角度の推定から）で曲がると、車から見た線は
+//     z1 ← z1 + (z2 − Ls·κc)·ds     （線の向きの分ずれ、車が向きを変えた分だけ前の点が反対へ動く）
+//     z2 ← z2 + (z3 − κc)·ds        （線の曲がりの分と、車が曲がった分の差だけ向きが変わる）
+//     z3 ← z3                       （曲がり具合はゆっくり変わるとみる）
+//   と動く（予測）。センサで見た位置 e との差 r = e − z1 で、3つを直す
+//     z1 += 3p·ds·r、 z2 += 3p²·ds·r、 z3 += p³·ds·r       （p = LINE_OBS_BAND）
+//   この係数で、推定の誤差は (s + p)³ の形で、進んだ距離 1/p ごとにほぼ 1/e ずつ小さくなる（極を -p に3つ置く）。
+//   時間ではなく進んだ距離で考えるので、速さが変わっても同じ距離で追いつく
+//   κc には、摩擦円を超えた分を縮めた「車が本当に曲がっている曲率」car_k_eff を使う（横すべりしているときに、
+//   線が大きく曲がったと思い込まないように）
+//   通常走行・大曲がりの外にいた時間が 20ms を超えたら、測った位置から始め直す（それより短いときは、その分進める）
+//   線が端のセンサ1つだけ（0x80 / 0x01）のときは、それより外にあるかもしれないので、予測だけ進める
+//**********************************************************************
+void line_obs_update(unsigned char c) {
+    const float ls = SENSOR_TO_REAR_AXLE_M;
+    const float p = LINE_OBS_BAND;
+    unsigned long now = cnt0;
+    unsigned long gap = now - line_obs_ms;
+    int fresh = (gap == 0 || gap > 20);
+    line_obs_ms = now;
+    int seen = (c != 0x00 && c != 0x80 && c != 0x01);
+    float kc = car_k_eff;
+    if (fresh) {
+        obs_z1 = seen ? line_position_m(c) : 0.0f;
+        obs_z2 = 0.0f;
+        obs_z3 = 0.0f;
+        return;
+    }
+    float ds = speed_mps * 0.001f * gap;
+    if (ds < 0.0f) ds = 0.0f;
+    float z1 = obs_z1 + (obs_z2 - ls * kc) * ds;
+    float z2 = obs_z2 + (obs_z3 - kc) * ds;
+    float z3 = obs_z3;
+    if (seen) {
+        float r = line_position_m(c) - z1;
+        z1 = z1 + 3.0f * p * ds * r;
+        z2 = z2 + 3.0f * p * p * ds * r;
+        z3 = z3 + p * p * p * ds * r;
+    }
+    // 起こりえない値にならないように（線の向きは ±0.6rad、曲がり具合はハンドルを最大に切った時の2倍まで。
+    // その曲がり具合 obs_k_lim は plan_setup で1回だけ計算しておく）
+    const float k_lim = obs_k_lim;
+    if (!finite_f(z1) || !finite_f(z2) || !finite_f(z3)) { z1 = 0.0f; z2 = 0.0f; z3 = 0.0f; }
+    if (z2 > 0.6f) z2 = 0.6f;
+    if (z2 < -0.6f) z2 = -0.6f;
+    if (z3 > k_lim) z3 = k_lim;
+    if (z3 < -k_lim) z3 = -k_lim;
+    obs_z1 = z1;
+    obs_z2 = z2;
+    obs_z3 = z3;
+}
+
+//**********************************************************************
+// 推定した線の形からハンドル角度を決める（USE_NEW_LINE_SHAPE）
+//   ① 今出す指令が効くのは STEER_LEAD_S 後。その間に進む距離 d だけ先の、センサの所の線の横の位置を予測する
+//        eL = z1 + (z2 − Ls·κc)·d + (z3 − κc)·d²/2
+//      （その間の車の曲がり具合 κc は、サーボの本当の角度と、前の1msに出した指令の平均とする。
+//        この1msの指令は、表を引いた時に一度書き換わっているので使わない）
+//   ② USE_NEW_STEER のピュアパシュートと同じ式 κ = 2eL ÷ (Ld² + eL²)（Ld = pursuit_ld）で曲がる。
+//      センサで見た 5mm きざみの位置の代わりに、推定してサーボの遅れの分だけ先へ進めた位置を使うので、
+//      ハンドルがきざみで揺れず、遅れの分だけ早く切れる
+//      （模擬では、線の形から Ld の所の位置を求め直すより、この方がカーブの入口でふくらまなかった）
+//**********************************************************************
+float line_obs_angle(void) {
+    const float ls = SENSOR_TO_REAR_AXLE_M;
+    float kc = 0.5f * (curvature_of_angle(servo_est_deg) + curvature_of_angle(servo_last_cmd()));
+    float d = speed_mps * STEER_LEAD_S;
+    if (d < 0.0f) d = 0.0f;
+    float el = obs_z1 + (obs_z2 - ls * kc) * d + (obs_z3 - kc) * d * d * 0.5f;
+    float k = 2.0f * el / (pursuit_ld * pursuit_ld + el * el);
+    float deg = atanf(WHEELBASE_M * k) / DEG_TO_RAD_F;
+    if (deg > SERVO_MAX_ANGLE) deg = SERVO_MAX_ANGLE;
+    if (deg < -SERVO_MAX_ANGLE) deg = -SERVO_MAX_ANGLE;
+    return deg;
 }
