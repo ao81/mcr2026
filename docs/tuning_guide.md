@@ -365,6 +365,7 @@ Basicマイコンカーには、速さを直接測るセンサ（エンコーダ
 tools/course_sim/compare.sh                       # 元と新しい方法をまとめて比べる
 tools/course_sim/run.sh all crank_l lane_r avg=1  # すべて新しくして、クランクとレーンチェンジだけ
 tools/course_sim/run.sh all crank_l grip_lat=7.2 avg=1   # 本当の横のグリップが 10% 低かったら
+tools/course_sim/view.sh crank_l off all          # 元とすべて新しくした走りを、ブラウザで動かして見る
 ```
 
 実機で測った値を `config.h` に入れたら、まず模擬で失敗しないことを確かめてから実機で走らせると、試す回数を減らせます。詳しくは `tools/course_sim/README.md` にあります。
@@ -403,4 +404,4 @@ tools/course_sim/run.sh all crank_l grip_lat=7.2 avg=1   # 本当の横のグリ
 
 余裕をすべてなくした場合（理論上の限界、1.0m）は、クランク 1771 ms（7回中5回失敗）、レーンチェンジ 1818 ms（7回中2回失敗）でした。初期値の余裕で失うのは、クランクで約 15ms、レーンチェンジで約 20ms です。
 
-本当の値を設定からずらした場合の結果は `tools/course_sim/README.md` の 5 章にあります。
+本当の値を設定からずらした場合の結果は `tools/course_sim/README.md` の 6 章にあります。

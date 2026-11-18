@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>コースの模擬ビューア</title>
+<!-- tools/course_sim/view.sh が、このファイルに走行データを埋め込んで HTML を作る。このファイルを直接開いても何も表示されない -->
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --text: #1d232b; --sub: #5d6773; --line: #d6dae0;
+    --field: #7d8c7a; --surface: #23272c; --white: #f2f2f2; --cursor: #d43d3d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15181c; --panel: #1f242a; --text: #e7eaee; --sub: #9aa4af; --line: #353c44; --field: #3d4a3b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+  header { padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .sub { color: var(--sub); font-size: 12px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; padding: 0 16px 16px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  #viewWrap { position: relative; height: 62vh; min-height: 320px; overflow: hidden; }
+  #view { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #hint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: #e8e8e8; background: rgba(0,0,0,.45); padding: 2px 6px; border-radius: 4px; }
+  #side { padding: 10px 12px; overflow: auto; height: 62vh; min-height: 320px; }
+  @media (max-width: 860px) { #side { height: auto; max-height: 60vh; min-height: 0; } }
+  #side h2 { font-size: 13px; margin: 6px 0; color: var(--sub); font-weight: 600; }
+  .run { border-top: 1px solid var(--line); padding: 8px 0; }
+  .run:first-of-type { border-top: 0; }
+  .run label { display: flex; gap: 6px; align-items: center; font-weight: 600; word-break: break-all; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .res { color: var(--sub); font-size: 12px; margin: 2px 0 4px 18px; }
+  table.vals { border-collapse: collapse; margin-left: 18px; font-variant-numeric: tabular-nums; font-size: 12px; }
+  table.vals td { padding: 1px 8px 1px 0; }
+  table.vals td:first-child { color: var(--sub); }
+  .ptn { margin-left: 18px; font-size: 12px; }
+  #controls { grid-column: 1 / -1; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  #controls button { font: inherit; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
+  #seek { flex: 1 1 260px; }
+  #time { font-variant-numeric: tabular-nums; min-width: 7em; }
+  #chartWrap { grid-column: 1 / -1; height: 190px; }
+  #chart { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  select, input[type=checkbox] { font: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>コースの模擬ビューア</h1>
+  <span class="sub" id="courseName"></span>
+  <span class="sub">後輪の軸の中心の通り道を線で、車体の外形（コースアウト判定の範囲）を四角で表示。センサは白線を見ると赤くなる</span>
+</header>
+<main>
+  <div class="card" id="viewWrap"><canvas id="view"></canvas><div id="hint">ホイール: 拡大・縮小　ドラッグ: 移動　ダブルクリック: 全体表示</div></div>
+  <div class="card" id="side"><h2>走行（チェックで表示）</h2><div id="runs"></div></div>
+  <div class="card" id="controls">
+    <button id="play">▶ 再生</button>
+    <button id="back">−10ms</button>
+    <button id="fwd">＋10ms</button>
+    <input type="range" id="seek" min="0" max="1000" value="0">
+    <span id="time">0 ms</span>
+    <label>速さ <select id="rate"><option>0.05</option><option>0.1</option><option selected>0.25</option><option>0.5</option><option>1</option></select> 倍</label>
+    <label><input type="checkbox" id="follow" checked> 車を追う</label>
+    <label><input type="checkbox" id="trail" checked> 通り道</label>
+  </div>
+  <div class="card" id="chartWrap"><canvas id="chart"></canvas></div>
+</main>
+<script>
+// __DATA__
+</script>
+<script>
+"use strict";
+const COLORS = ["#2f7de1", "#e8772e", "#2aa876", "#b85bd6", "#d94c63", "#8a8f2b"];
+const PTN = [
+  [0, 1, "待機"], [20, 25, "通常走行"], [30, 35, "右大曲がり"], [40, 45, "左大曲がり"],
+  [100, 101, "クロスライン"], [102, 103, "クランク手前の減速"],
+  [110, 111, "左クランク（元の方法）"], [112, 112, "左クランク（円弧）"], [120, 120, "左クランク 復帰"], [121, 121, "左クランク はみ出し"],
+  [150, 151, "右クランク（元の方法）"], [152, 152, "右クランク（円弧）"], [160, 160, "右クランク 復帰"], [161, 161, "右クランク はみ出し"],
+  [200, 202, "右ハーフライン"], [300, 310, "右レーン 減速"], [320, 350, "右レーン（元の方法）"], [360, 370, "右レーン S字"],
+  [380, 390, "右レーン 線を探す"], [400, 430, "右レーン 線に合わせる"], [440, 450, "右レーン ふくらみ"],
+  [500, 502, "左ハーフライン"], [600, 610, "左レーン 減速"], [620, 650, "左レーン（元の方法）"], [660, 670, "左レーン S字"],
+  [680, 690, "左レーン 線を探す"], [700, 730, "左レーン 線に合わせる"], [740, 750, "左レーン ふくらみ"],
+  [800, 801, "停止"], [1001, 1001, "終了"],
+];
+function ptnName(p) { for (const [a, b, n] of PTN) if (p >= a && p <= b) return n; return ""; }
+
+// 1行のサンプル: [t, pattern, sensor, x, y, psi, v, steer, cmd, pl, pr, est, dist, lat]
+const I = { t: 0, p: 1, s: 2, x: 3, y: 4, psi: 5, v: 6, st: 7, cmd: 8, pl: 9, pr: 10, est: 11, dist: 12, lat: 13 };
+const D = DATA;
+const car = D.car, course = D.course;
+D.runs.forEach((r, i) => { r.color = COLORS[i % COLORS.length]; r.show = true; });
+const dt = D.dump;
+const tEnd = Math.max(...D.runs.map(r => r.s.length ? r.s[r.s.length - 1][I.t] : 0));
+let t = 0, playing = false, lastNow = 0;
+
+document.getElementById("courseName").textContent = "コース: " + course.name + "　" + D.opts;
+
+// ---------- 走行の一覧 ----------
+const runsDiv = document.getElementById("runs");
+D.runs.forEach((r, i) => {
+  const d = document.createElement("div"); d.className = "run";
+  d.innerHTML = `<label><input type="checkbox" checked><span class="sw" style="background:${r.color}"></span>${esc(r.label)}</label>
+    <div class="res">${esc(r.result)}</div><div class="ptn"></div><table class="vals"></table>`;
+  d.querySelector("input").onchange = e => { r.show = e.target.checked; draw(); };
+  r.ptnEl = d.querySelector(".ptn"); r.valEl = d.querySelector(".vals");
+  runsDiv.appendChild(d);
+});
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function sampleAt(r, tt) { if (!r.s.length) return null; const k = Math.min(r.s.length - 1, Math.max(0, Math.round(tt / dt))); return r.s[k]; }
+
+// ---------- 表示範囲 ----------
+const view = document.getElementById("view"), vctx = view.getContext("2d");
+let cam = { x: 0, y: 0, scale: 200 };
+function bounds() {
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const r of D.runs) for (const s of r.s) { x0 = Math.min(x0, s[I.x]); x1 = Math.max(x1, s[I.x]); y0 = Math.min(y0, s[I.y]); y1 = Math.max(y1, s[I.y]); }
+  if (x0 > x1) { x0 = -0.5; x1 = 0.5; y0 = 0; y1 = 2; }
+  const m = 0.35; return [x0 - m, x1 + m, y0 - m, y1 + m];
+}
+function fitAll() {
+  const [x0, x1, y0, y1] = bounds(), w = view.clientWidth, h = view.clientHeight;
+  cam.scale = Math.min(w / (x1 - x0), h / (y1 - y0)); cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2;
+  document.getElementById("follow").checked = false; draw();
+}
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  for (const c of [view, chart]) { c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr; }
+  draw();
+}
+
+// ---------- コースと車の描画 ----------
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function shapePath(ctx, sh) {
+  ctx.beginPath();
+  for (const [x0, y0, x1, y1] of sh.rects) ctx.rect(x0, y0, x1 - x0, y1 - y0);
+  for (const [cx, cy, r0, r1, a0, a1] of sh.rings) {
+    ctx.moveTo(cx + r1 * Math.cos(a0), cy + r1 * Math.sin(a0));
+    ctx.arc(cx, cy, r1, a0, a1, false); ctx.arc(cx, cy, r0, a1, a0, true); ctx.closePath();
+  }
+}
+function drawCar(ctx, s, color, px) {
+  const psi = s[I.psi] * Math.PI / 180, hx = Math.cos(psi), hy = Math.sin(psi), rx = Math.sin(psi), ry = -Math.cos(psi);
+  const P = (f, l) => [s[I.x] + f * hx + l * rx, s[I.y] + f * hy + l * ry];
+  // 外形（コースアウト判定の4点）
+  ctx.beginPath();
+  for (const [f, l] of [[0, -car.half_w], [car.front, -car.half_w], [car.front, car.half_w], [0, car.half_w]]) { const p = P(f, l); ctx.lineTo(p[0], p[1]); }
+  ctx.closePath(); ctx.globalAlpha = 0.25; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.lineWidth = 2 * px; ctx.strokeStyle = color; ctx.stroke();
+  // 車輪（後輪は左右、前輪はハンドルの角度だけ回す）
+  const wheel = (f, l, ang) => {
+    const c = P(f, l), a = psi - ang * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), L = 0.025;
+    ctx.beginPath(); ctx.moveTo(c[0] - ux * L, c[1] - uy * L); ctx.lineTo(c[0] + ux * L, c[1] + uy * L);
+    ctx.lineWidth = 5 * px; ctx.strokeStyle = "#111"; ctx.stroke();
+  };
+  wheel(0, -car.tread / 2, 0); wheel(0, car.tread / 2, 0);
+  wheel(car.wheelbase, -car.tread / 2, s[I.st]); wheel(car.wheelbase, car.tread / 2, s[I.st]);
+  // 軸とセンサの棒
+  const a = P(0, 0), b = P(car.sensor, 0);
+  ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineWidth = 1.5 * px; ctx.strokeStyle = color; ctx.stroke();
+  for (let k = 0; k < 8; k++) {
+    const p = P(car.sensor, car.sx[k]), on = (s[I.s] >> (7 - k)) & 1;
+    ctx.beginPath(); ctx.arc(p[0], p[1], 3.2 * px, 0, Math.PI * 2);
+    ctx.fillStyle = on ? "#ff3b30" : "#6b7280"; ctx.fill(); ctx.lineWidth = 1 * px; ctx.strokeStyle = "#000"; ctx.stroke();
+  }
+}
+function draw() {
+  if (!view.width) return;
+  const W = view.width, H = view.height, dpr = window.devicePixelRatio || 1;
+  if (document.getElementById("follow").checked) {
+    const r = D.runs.find(r => r.show) || D.runs[0], s = sampleAt(r, t);
+    if (s) { cam.x = s[I.x]; cam.y = s[I.y]; }
+  }
+  const k = cam.scale * dpr, px = 1 / k;
+  const ctx = vctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = css("--field"); ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(k, 0, 0, -k, W / 2 - cam.x * k, H / 2 + cam.y * k);
+  shapePath(ctx, course.surface); ctx.fillStyle = css("--surface"); ctx.fill();
+  shapePath(ctx, course.white); ctx.fillStyle = css("--white"); ctx.fill();
+  for (const r of D.runs) {
+    if (!r.show) continue;
+    if (document.getElementById("trail").checked) {
+      ctx.beginPath();
+      for (const s of r.s) { if (s[I.t] > t) break; ctx.lineTo(s[I.x], s[I.y]); }
+      ctx.lineWidth = 2 * px; ctx.strokeStyle = r.color; ctx.stroke();
+    }
+  }
+  for (const r of D.runs) {
+    if (!r.show) continue;
+    const s = sampleAt(r, t); if (!s) continue;
+    drawCar(ctx, s, r.color, px);
+    if (r.out && t >= r.s[r.s.length - 1][I.t]) {
+      const p = [s[I.x], s[I.y]], L = 0.05;
+      ctx.beginPath(); ctx.moveTo(p[0] - L, p[1] - L); ctx.lineTo(p[0] + L, p[1] + L); ctx.moveTo(p[0] - L, p[1] + L); ctx.lineTo(p[0] + L, p[1] - L);
+      ctx.lineWidth = 4 * px; ctx.strokeStyle = "#ff3b30"; ctx.stroke();
+    }
+  }
+  // 縮尺
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const barM = cam.scale > 400 ? 0.05 : cam.scale > 120 ? 0.1 : 0.5, bar = barM * k;
+  ctx.fillStyle = "#fff"; ctx.fillRect(W - bar - 16 * dpr, H - 18 * dpr, bar, 3 * dpr);
+  ctx.font = `${11 * dpr}px system-ui`; ctx.textAlign = "right"; ctx.fillText(barM * 100 + " cm", W - 16 * dpr, H - 24 * dpr);
+  updatePanel(); drawChart();
+}
+
+// ---------- 数値の表示 ----------
+function updatePanel() {
+  document.getElementById("time").textContent = Math.round(t) + " ms";
+  document.getElementById("seek").value = tEnd ? Math.round(t / tEnd * 1000) : 0;
+  for (const r of D.runs) {
+    const s = sampleAt(r, t);
+    if (!s) { r.valEl.innerHTML = ""; continue; }
+    r.ptnEl.textContent = "pattern " + s[I.p] + "　" + ptnName(s[I.p]);
+    const sens = (s[I.s] | 256).toString(2).slice(1).replace(/1/g, "●").replace(/0/g, "○");
+    const rows = [
+      ["速さ（本当）", s[I.v].toFixed(2) + " m/s"], ["速さ（推定）", s[I.est].toFixed(2) + " m/s"],
+      ["ハンドル 本当 / 指令", s[I.st].toFixed(1) + "° / " + s[I.cmd].toFixed(1) + "°"],
+      ["モータ 左 / 右", s[I.pl] + " / " + s[I.pr] + " %"], ["横G", Math.round(s[I.lat] * 100) + " %"],
+      ["ラインからの距離", (s[I.dist] * 1000).toFixed(0) + " mm"], ["センサ", sens],
+    ];
+    r.valEl.innerHTML = rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
+  }
+}
+
+// ---------- グラフ ----------
+const chart = document.getElementById("chart"), cctx = chart.getContext("2d");
+const PLOTS = [
+  { name: "速さ [m/s]（実線: 本当、点線: 推定）", a: I.v, b: I.est, lo: 0, hi: null },
+  { name: "ハンドル [度]（実線: 本当、点線: 指令）", a: I.st, b: I.cmd, lo: null, hi: null },
+  { name: "横G [%]（100% でグリップの限界）", a: I.lat, b: -1, lo: 0, hi: null, mul: 100 },
+];
+function drawChart() {
+  const W = chart.width, H = chart.height, dpr = window.devicePixelRatio || 1, ctx = cctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+  const L = 44 * dpr, R = 10 * dpr, ph = H / PLOTS.length, tx = tt => L + (W - L - R) * tt / Math.max(tEnd, 1);
+  ctx.font = `${11 * dpr}px system-ui`;
+  PLOTS.forEach((pl, j) => {
+    const top = j * ph + 16 * dpr, bot = (j + 1) * ph - 6 * dpr, mul = pl.mul || 1;
+    let lo = Infinity, hi = -Infinity;
+    for (const r of D.runs) if (r.show) for (const s of r.s) for (const c of [pl.a, pl.b]) if (c >= 0) { lo = Math.min(lo, s[c] * mul); hi = Math.max(hi, s[c] * mul); }
+    if (pl.lo !== null) lo = Math.min(lo, pl.lo); if (pl.mul) hi = Math.max(hi, 110);
+    if (!(hi > lo)) { lo = 0; hi = 1; }
+    const ty = v => bot - (bot - top) * (v - lo) / (hi - lo);
+    ctx.fillStyle = css("--sub"); ctx.textAlign = "left"; ctx.fillText(pl.name, L, top - 4 * dpr);
+    ctx.textAlign = "right"; ctx.fillText(hi.toFixed(hi < 10 ? 1 : 0), L - 4 * dpr, top + 8 * dpr); ctx.fillText(lo.toFixed(lo > -10 && lo < 10 ? 1 : 0), L - 4 * dpr, bot);
+    ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(L, top, W - L - R, bot - top);
+    if (pl.mul) { ctx.setLineDash([2 * dpr, 3 * dpr]); ctx.beginPath(); ctx.moveTo(L, ty(100)); ctx.lineTo(W - R, ty(100)); ctx.stroke(); ctx.setLineDash([]); }
+    for (const r of D.runs) {
+      if (!r.show) continue;
+      for (const [c, dash] of [[pl.a, []], [pl.b, [4 * dpr, 3 * dpr]]]) {
+        if (c < 0) continue;
+        ctx.setLineDash(dash); ctx.beginPath();
+        for (const s of r.s) ctx.lineTo(tx(s[I.t]), ty(s[c] * mul));
+        ctx.strokeStyle = r.color; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+  });
+  ctx.strokeStyle = css("--cursor"); ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.moveTo(tx(t), 0); ctx.lineTo(tx(t), H); ctx.stroke();
+  chart._tx = tx; chart._L = L; chart._R = R;
+}
+chart.addEventListener("pointerdown", e => seekChart(e));
+chart.addEventListener("pointermove", e => { if (e.buttons) seekChart(e); });
+function seekChart(e) {
+  const dpr = window.devicePixelRatio || 1, x = (e.offsetX * dpr - chart._L) / (chart.width - chart._L - chart._R);
+  setT(Math.max(0, Math.min(1, x)) * tEnd);
+}
+
+// ---------- 操作 ----------
+function setT(v) { t = Math.max(0, Math.min(tEnd, v)); draw(); }
+function step(now) {
+  if (!playing) return;
+  const rate = parseFloat(document.getElementById("rate").value);
+  t += (now - lastNow) * rate; lastNow = now;
+  if (t >= tEnd) { t = tEnd; setPlaying(false); }
+  draw(); if (playing) requestAnimationFrame(step);
+}
+function setPlaying(p) {
+  playing = p; document.getElementById("play").textContent = p ? "❚❚ 止める" : "▶ 再生";
+  if (p) { if (t >= tEnd) t = 0; lastNow = performance.now(); requestAnimationFrame(step); }
+}
+document.getElementById("play").onclick = () => setPlaying(!playing);
+document.getElementById("back").onclick = () => setT(t - 10);
+document.getElementById("fwd").onclick = () => setT(t + 10);
+document.getElementById("seek").oninput = e => setT(e.target.value / 1000 * tEnd);
+document.getElementById("follow").onchange = draw;
+document.getElementById("trail").onchange = draw;
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT") return;
+  if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  if (e.code === "ArrowLeft") setT(t - (e.shiftKey ? 100 : 10));
+  if (e.code === "ArrowRight") setT(t + (e.shiftKey ? 100 : 10));
+});
+view.addEventListener("wheel", e => {
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * 0.0015), rect = view.getBoundingClientRect();
+  const mx = (e.clientX - rect.left - rect.width / 2) / cam.scale, my = -(e.clientY - rect.top - rect.height / 2) / cam.scale;
+  if (!document.getElementById("follow").checked) { cam.x += mx * (1 - 1 / f); cam.y += my * (1 - 1 / f); }
+  cam.scale = Math.max(20, Math.min(5000, cam.scale * f)); draw();
+}, { passive: false });
+let drag = null;
+view.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; view.setPointerCapture(e.pointerId); view.style.cursor = "grabbing"; });
+view.addEventListener("pointermove", e => {
+  if (!drag) return;
+  document.getElementById("follow").checked = false;
+  cam.x -= (e.clientX - drag.x) / cam.scale; cam.y += (e.clientY - drag.y) / cam.scale; drag = { x: e.clientX, y: e.clientY }; draw();
+});
+view.addEventListener("pointerup", () => { drag = null; view.style.cursor = "grab"; });
+view.addEventListener("dblclick", fitAll);
+window.addEventListener("resize", resize);
+resize(); cam.scale = 300; draw();
+</script>
+</body>
+</html>

@@ -4,7 +4,8 @@
 //     コース: crank_l crank_r lane_l lane_r curve_l curve_r
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
 //       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r
-//       sensor_to_axle half_w front ms trace
+//       sensor_to_axle half_w front ms trace spot dip approach dump
+//     dump=N : N ms ごとの状態を、視覚的なシミュレータ（view.sh / viewer.html）が読む形で出力する
 //
 //   車の動き（後輪の軸の中心で計算）
 //     ・速さ : dv/dt = (出力の平均/100 × v_max − v) ÷ tau
@@ -70,7 +71,7 @@ static std::map<std::string, double> P = {
     {"servo_dps", SERVO_SPEED_DPS}, {"servo_dead", SERVO_DEAD_S}, {"line_w", 0.032}, {"cross_to", CROSS_TO_CRANK_M}, {"half_to", HALF_TO_LANE_M},
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
-    {"dip", 3}, {"approach", 1.5},
+    {"dip", 3}, {"approach", 1.5}, {"dump", 0},
 };
 
 static Course make_course(const std::string& name) {
@@ -118,6 +119,17 @@ static Course make_course(const std::string& name) {
     return c;
 }
 
+// 視覚的なシミュレータ用：形を JSON で出力する
+static void dump_shapes(const char* key, const Shapes& sh) {
+    printf("\"%s\":{\"rects\":[", key);
+    for (size_t i = 0; i < sh.rects.size(); i++)
+        printf("%s[%.4f,%.4f,%.4f,%.4f]", i ? "," : "", sh.rects[i].x0, sh.rects[i].y0, sh.rects[i].x1, sh.rects[i].y1);
+    printf("],\"rings\":[");
+    for (size_t i = 0; i < sh.rings.size(); i++)
+        printf("%s[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]", i ? "," : "", sh.rings[i].cx, sh.rings[i].cy, sh.rings[i].r0, sh.rings[i].r1, sh.rings[i].a0, sh.rings[i].a1);
+    printf("]}");
+}
+
 static void set_inputs(uint8_t s, bool push) {    // s: 1 = 白
     const int bitpos[8] = {4, 5, 6, 7, 8, 10, 11, 12};
     uint16_t v = 0xffff;
@@ -154,6 +166,18 @@ int main(int argc, char** argv) {
     double x = 0, y = 0, psi = M_PI / 2, v = 0, steer = 0;    // psi: 進行方向（+x から反時計回り）
     set_inputs(0x19, false);
     setup();
+
+    const int dump = (int)P["dump"];
+    if (dump > 0) {
+        printf("#COURSE {\"name\":\"%s\",", name.c_str());
+        dump_shapes("white", c.white);
+        printf(",");
+        dump_shapes("surface", c.surface);
+        printf("}\n");
+        printf("#CAR {\"wheelbase\":%.4f,\"tread\":%.4f,\"sensor\":%.4f,\"half_w\":%.4f,\"front\":%.4f,\"sx\":[", wb, TREAD_M, sf, hw, front);
+        for (int b = 0; b < 8; b++) printf("%s%.4f", b ? "," : "", SENSOR_X_MM[b] * 0.001);
+        printf("],\"grip_lat\":%.3f}\n", gy);
+    }
 
     long t_start = -1, t_finish = -1, slip_ms = 0, t_out = -1;
     double v_peak = 0, v_event = -1, min_room = 1, lat_peak = 0;
@@ -212,6 +236,11 @@ int main(int argc, char** argv) {
         if (v > v_peak) v_peak = v;
         if (event_ptn < 0 && ((pattern >= 110 && pattern <= 161) || (pattern >= 320 && pattern <= 390) || (pattern >= 620 && pattern <= 690))) {
             event_ptn = pattern; v_event = v;
+        }
+        if (dump > 0 && t % dump == 0) {
+            printf("#S %ld,%d,%u,%.4f,%.4f,%.2f,%.3f,%.1f,%.1f,%.0f,%.0f,%.3f,%.3f,%.3f\n",
+                   t - t_start, (int)pattern, (unsigned)s, x, y, psi * 180 / M_PI, v, steer, ang_cmd, pl, pr,
+                   (double)speed_mps, (double)dist_m, qlat);
         }
         // コースアウト判定（タイヤの外側の4点）
         double pts[4][2] = {{0, -hw}, {0, hw}, {front, -hw}, {front, hw}};
