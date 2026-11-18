@@ -41,6 +41,9 @@ static_assert(!(USE_NEW_CRANK_BRAKE && !USE_NEW_CRANK_TURN) || (CRANK_ENTRY_MPS 
 static_assert(!(USE_NEW_LINE_SHAPE && !USE_NEW_STEER), "USE_NEW_LINE_SHAPE は USE_NEW_STEER と一緒に 1 にしてください");
 static_assert(!(USE_NEW_CURVE_PREVIEW && !USE_NEW_TRACE_SPEED), "USE_NEW_CURVE_PREVIEW は USE_NEW_TRACE_SPEED と一緒に 1 にしてください");
 
+static_assert(!USE_NEW_LANE_DISTANCE || USE_NEW_LANE_STEER, "USE_NEW_LANE_DISTANCE には USE_NEW_LANE_STEER が必要です");
+static_assert(!USE_NEW_LANE_DOWN_ONLY || USE_NEW_LANE_DISTANCE, "USE_NEW_LANE_DOWN_ONLY には USE_NEW_LANE_DISTANCE が必要です");
+
 #define timer(x) delay(x)    // timer関数=delay関数
 
 //========================================
@@ -224,6 +227,7 @@ float accel_up_limit(float v, float k_abs);
 void speed_model_update(void);
 void speed_measure_by_line(float width_m, int pass_ms);
 void reset_distance(void);
+void correct_lane_speed_by_distance(void);
 float braking_distance(float v, float v_target, int brake_power);
 float deadbeat_speed(float v, float v_target, float k_abs);
 int power_of_speed(float u);

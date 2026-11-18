@@ -109,6 +109,22 @@ void speed_measure_by_line(float width_m, int pass_ms) {
         }
     }
     model_bad_cnt = 0;
+#if USE_NEW_LANE_WIDTH_INTERVAL
+    const bool half_line = pattern == PT_LANE_L_PASS || pattern == PT_LANE_R_PASS;
+    const float sample_s = 0.001f;
+    if (half_line && model_ok && t > sample_s && speed_mps > 0.5f) {
+        // 通過中の加減速と、入口・出口を次のサンプルで検出する遅れを見込む。
+        const float error = GRIP_LONG_MPS2 * (0.5f * (t + sample_s) + sample_s);
+        const float low = width_m / (t + sample_s) - error;
+        const float high = width_m / (t - sample_s) + error;
+        if (speed_mps >= low && speed_mps <= high) return;
+
+        // 区間端について反転した値までに限り、既存のゲインで混ぜる。
+        const float edge = speed_mps < low ? low : high;
+        const float limit = 2.0f * edge - speed_mps;
+        v_meas = speed_mps < low ? fminf(v_meas, limit) : fmaxf(v_meas, limit);
+    }
+#endif
     // 推定（モデル）と測定のどちらにも誤差があるので、2つを誤差の大きさに応じて混ぜる（カルマンフィルタ）。
     // モデルの速さの誤差は、ほとんどが出力100%の速さ v_max_mps の誤差 P から来る（速さは v_max_mps に比例する）。
     // 測定の誤差 R は、1ms 単位で測ることと、ラインの幅の誤差から来る（config.h の説明を参照）
@@ -137,6 +153,23 @@ void speed_measure_by_line(float width_m, int pass_ms) {
 #endif
     }
     speed_mps = v_new;
+}
+
+// ハーフライン退出後の積算距離を、中央線の切れ目で一度だけ照合する。
+void correct_lane_speed_by_distance(void) {
+    if (!model_ok || !(dist_m > 0.0f && speed_mps > 0.5f && HALF_TO_LANE_M > 0.0f)) return;
+    const float margin = 2.0f * v_max_mps * 0.001f;
+    const float measured = fminf(fmaxf(dist_m, HALF_TO_LANE_M - margin),
+                                 HALF_TO_LANE_M + margin);
+    const float ratio = measured / dist_m;
+    if (!(ratio >= 0.8f && ratio <= 1.25f) || ratio == 1.0f) return;
+    if (USE_NEW_LANE_DOWN_ONLY && ratio > 1.0f) return;
+
+    speed_mps *= ratio;
+#if USE_NEW_VMAX_LEARN
+    v_max_mps = fminf(V_MAX_MPS * (1.0f + VMAX_LEARN_RANGE),
+                      fmaxf(V_MAX_MPS * (1.0f - VMAX_LEARN_RANGE), v_max_mps * ratio));
+#endif
 }
 
 // 距離を0に戻す（ラインを通過し終わった時などに呼ぶ）。ブレーキの状態も最初に戻す

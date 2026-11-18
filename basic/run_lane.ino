@@ -93,6 +93,9 @@ void run_lane_approach(int stage, bool right) {
     if (cnt1 > LANE_START_WAIT_MS) {
         if (sensor_inp(MASK4_4) == 0x00) {   // 中央線が切れた → 車線変更開始
 #if USE_NEW_LANE_STEER
+#if USE_NEW_LANE_DISTANCE
+            correct_lane_speed_by_distance();
+#endif
             if (lane_start_scurve(stage, right)) return;   // 計算した2つの円弧で曲がる
 #endif
             line_pass_state = PASS_WAIT;

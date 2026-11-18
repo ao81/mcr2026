@@ -255,6 +255,8 @@ const SW_LABEL = {
   USE_NEW_TRACTION: "加速の制限", USE_NEW_TRACE_SPEED: "通常走行の速さ", USE_NEW_CURVE_SPEED: "大曲がりの速さ",
   USE_NEW_STEER: "通常走行のハンドル", USE_NEW_CRANK_BRAKE: "クランク手前の減速", USE_NEW_CRANK_TURN: "クランクの円弧",
   USE_NEW_LANE_BRAKE: "レーンチェンジ手前の減速", USE_NEW_LANE_STEER: "レーンチェンジのS字", USE_NEW_VMAX_LEARN: "出力100%の速さの学習",
+  USE_NEW_LANE_WIDTH_INTERVAL: "ハーフラインの通過時間誤差を考慮",
+  USE_NEW_LANE_DISTANCE: "車線変更前の距離で速度を補正", USE_NEW_LANE_DOWN_ONLY: "距離補正を下方に限定",
   USE_NEW_LINE_SHAPE: "線の形の推定", USE_NEW_CURVE_PREVIEW: "カーブの先読み", USE_NEW_BRAKE_RANGE: "減速の距離を全部使う",
 };
 const COURSES = [["crank_l", "左クランク"], ["crank_r", "右クランク"], ["lane_l", "左レーン"], ["lane_r", "右レーン"], ["curve_l", "左カーブ"], ["curve_r", "右カーブ"], ["s_l", "左S字"], ["s_r", "右S字"]];
@@ -469,6 +471,8 @@ function cfgValues(run) {
 // basic.ino の static_assert と同じ確認
 function checkRun(v) {
   const g = n => v[BY_NAME[n].i];
+  if (g("USE_NEW_LANE_DOWN_ONLY") && !g("USE_NEW_LANE_DISTANCE")) return "下方限定には USE_NEW_LANE_DISTANCE が必要です";
+  if (g("USE_NEW_LANE_DISTANCE") && !g("USE_NEW_LANE_STEER")) return "距離補正には USE_NEW_LANE_STEER が必要です";
   if (g("USE_NEW_LINE_SHAPE") && !g("USE_NEW_STEER")) return "USE_NEW_LINE_SHAPE は USE_NEW_STEER と一緒に 1 にしてください（実機ではコンパイルできません）";
   if (g("USE_NEW_CURVE_PREVIEW") && !g("USE_NEW_TRACE_SPEED")) return "USE_NEW_CURVE_PREVIEW は USE_NEW_TRACE_SPEED と一緒に 1 にしてください（実機ではコンパイルできません）";
   if (g("USE_NEW_LANE_BRAKE") && !g("USE_NEW_LANE_STEER")) return "USE_NEW_LANE_BRAKE は USE_NEW_LANE_STEER と一緒に 1 にしてください（実機ではコンパイルできません）";

@@ -125,6 +125,10 @@ const int LANE_RAMP[LANE_STEPS] = {
 #define USE_NEW_CURVE_PREVIEW   0   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
 #define USE_NEW_BRAKE_RANGE     0   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
 
+#define USE_NEW_LANE_WIDTH_INTERVAL  0   // ハーフライン通過時、1msの測定誤差で説明できる速度のずれを除いて補正する
+#define USE_NEW_LANE_DISTANCE        0   // S字進入前、標識から中央線の切れ目までの距離で推定速度を補正する（USE_NEW_LANE_STEER と併用）
+#define USE_NEW_LANE_DOWN_ONLY       0   // 距離による補正を推定速度が下がる場合だけに限る（USE_NEW_LANE_DISTANCE と併用）
+
 //========================================
 // 車体の寸法 [m]
 //========================================
