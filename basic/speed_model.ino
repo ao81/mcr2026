@@ -250,6 +250,56 @@ void course_list_setup(void) {
     lane_spot_select(true);
 }
 
+// 位置の候補の数（表を使わないときや、表が正しく書かれていないときは 0）
+int course_start_count(void) {
+    return (COURSE_LIST_USE && spot_ok) ? START_N : 0;
+}
+
+// スタートした時に呼ぶ。sel = 0 ならすべての位置を候補にし、k なら COURSE_START_ROWS の k 番目だけにする
+void course_list_start(int sel) {
+    spot_no = 0;
+    spot_pend = 0;
+    spot_cand = (START_N >= 16) ? 0xffffu : ((1u << START_N) - 1u);
+    if (sel >= 1 && sel <= START_N && sel <= 16) spot_cand = 1u << (sel - 1);
+    crank_spot_select();
+    lane_spot_select(true);
+}
+
+// ラインを通過し終えた時に呼ぶ：速さを測り直すのに使う線の幅 [m] を決める
+//   スタートの位置が決まっていない（または数え間違えた）ときは、あり得る線の幅が何通りかある。広い幅ほど速さを多めに見積もるので、
+//   ふつうは一番広い幅を使う（早めに減速する側）。ただし、その幅で計算した速さが、モータの出力から求めた推定の速さの
+//   (1 + VMAX_LEARN_RANGE) 倍を超えるときは、その幅ではあり得ないとみて外す（出力100%の速さ V_MAX_MPS は ±VMAX_LEARN_RANGE の
+//   範囲で合っている、という前提。推定は V_MAX_MPS に比例する）。どの幅も超えるときは一番狭い幅を使う
+//   幅が1通りに決まっているときは、その幅をそのまま返す
+float spot_line_width(char kind, char dir, int pass_ms, float w_now) {
+    if (!(COURSE_LIST_USE && spot_ok)) return w_now;
+    unsigned int cand = spot_cand;
+    float to, w;
+    if (kind == 'C') {
+        if (!spot_match(cand, 'C', 0, &to, &w)) cand = 0;
+    } else {
+        if (!spot_match(cand, 'H', dir, &to, &w)) cand = 0;
+    }
+    float t = (pass_ms + LINE_PASS_OFFSET_MS) * 0.001f;
+    float v_cap = speed_mps * (1.0f + VMAX_LEARN_RANGE);
+    if (!model_ok || !(t > 0.0f) || speed_mps < 0.5f) return w_now;
+    float best = -1.0f, narrow = 1.0e6f;
+    for (int r = 0; r < SPOT_N; r++) {
+        const CourseSpot& s = COURSE_LIST[r];
+        if (s.kind != kind || (dir != 0 && s.dir != dir)) continue;
+        if (cand) {                                // 候補の位置から見て、今あり得る行だけ
+            bool hit = false;
+            for (int i = 0; i < START_N; i++) if ((cand & (1u << i)) && spot_row(i) == r) hit = true;
+            if (!hit) continue;
+        }
+        float wi = s.line_w_m + LINE_SEEN_EXTRA_M;
+        if (wi < narrow) narrow = wi;
+        if (wi / t <= v_cap && wi > best) best = wi;
+    }
+    if (narrow > 1.0e5f) return w_now;             // 当てはまる行が無い
+    return (best > 0.0f) ? best : narrow;
+}
+
 // クロスラインを見つけた時（pattern 100）に呼ぶ
 void crank_spot_select(void) {
     float to, w;

@@ -8,6 +8,7 @@
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
 //       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r s_rad s_deg
 //       cross_to2 line_w2 gap turn1 turn2（crank2）
+//       presses : スタートバーが開く前に、プッシュスイッチをこの回数押す（スタート位置の選択。run_trace.ino の start_sel_update）
 //       sensor_to_axle half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
@@ -79,7 +80,7 @@ static std::map<std::string, double> P = {
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0},
-    {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
+    {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1}, {"presses", 0},
 };
 
 static Course make_course(const std::string& name) {
@@ -251,9 +252,12 @@ int main(int argc, char** argv) {
             double px = x + sf * hx + lat * rx, py = y + sf * hy + lat * ry;
             if (c.white.inside(px, py, spot)) s |= (uint8_t)(0x80 >> b);
         }
-        bool bar = (t < 400);
+        const long presses = (long)P["presses"];
+        bool bar = (t < 400 + presses * 300);
         if (bar) s |= 0x01;
-        set_inputs(s, t >= 50 && t < 80);
+        bool push = (t >= 50 && t < 80);
+        for (long k = 0; k < presses; k++) if (t >= 300 + k * 300 && t < 360 + k * 300) push = true;
+        set_inputs(s, push);
 
         AGTCallback(0);
         loop();
