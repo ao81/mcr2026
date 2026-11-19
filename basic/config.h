@@ -15,7 +15,8 @@
 // PWM周期 (HOCO 48MHz を 16分周 = 3MHz でカウント)
 #define PWM_CYCLE       32999   // サーボ  11ms = 33000カウント
 #define PWM_CYCLE_M     14999   // モータ   5ms = 15000カウント
-#define SERVO_CENTER    5150    // ハンドルが真っすぐになるPWM値（車体ごとに合わせる）
+#define SERVO_CENTER    5170    // ハンドルが真っすぐになるPWM値（車体ごとに合わせる。値を上げると左向き。23 で約1度）
+                                //   LOG0008: 直線で -7度 が +7度 の約4倍出ていた（右へずれていく）ので 5150 → 5170
 #define HANDLE_STEP     23      // 1度あたりのPWM値
 #define SERVO_DIR       (-1)    // サーボが左右逆に動くときは (+1) にする
 
@@ -26,7 +27,8 @@
 //========================================
 // 安全装置・停止
 //========================================
-#define AUTO_STOP_MS            5000    // スタートからこの時間で自動停止（★大会ではコース1周分より長くする）
+#define AUTO_STOP_MS            30000   // スタートからこの時間で自動停止（★大会ではコース1周分より長くする）
+                                        //   1周の時間を測ったら「1周の時間 ＋ 2秒」にする
 #define COURSE_OUT_SENSOR       0xff    // この値が続いたらコースアウトと判断（全センサ白）
 #define COURSE_OUT_MS           300     // 上の状態がこの時間続いたら停止
 #define PUSH_STOP_GUARD_MS      1000    // スタート後この時間はプッシュスイッチによる停止を受け付けない
@@ -36,9 +38,10 @@
 // 通常走行（pattern 20〜25）
 //========================================
 // 直線（センサ 0x18 / 0x1c / 0x38）がこの時間続くと、次の速度段階へ上がる
-//   段階0→1: 350ms, 1→2: 650ms, 2→3: 900ms, 3→4: 1100ms, 4→5: 1250ms
+//   段階0→1: 250ms, 1→2: 650ms, 2→3: 900ms, 3→4: 1100ms, 4→5: 1250ms
+//   LOG0008: 直線が途切れずに続いたのは最長 340ms で、350 では一度も段階1に上がらなかったので 350 → 250
 #define TRACE_STAGES            6
-const unsigned long TRACE_STAGE_UP_MS[TRACE_STAGES - 1] = { 350, 650, 900, 1100, 1250 };
+const unsigned long TRACE_STAGE_UP_MS[TRACE_STAGES - 1] = { 250, 650, 900, 1100, 1250 };
 
 // 大曲がり（pattern 30〜35, 40〜45）
 // 段階 s の大曲がりは、この時間がたつと段階 s-1 の表に切り替わる
@@ -60,7 +63,7 @@ const unsigned long CURVE_STAGE_DOWN_MS[TRACE_STAGES] = { 0, 25, 50, 75, 100, 12
 //   ③ その後 CRANK_RAMP_STEP_MS ごとに  : CRANK_RAMP[i+1], [i+2] ... と上げていく（最後の値で止まる）
 #define CRANK_K_MIN             11
 #define CRANK_STEPS             25
-#define CRANK_RAMP_STEP_MS      16
+#define CRANK_RAMP_STEP_MS      32      // LOG0008: 16 ではクランクを見つけた時（クロスラインから約400ms）に 71〜77% まで戻り、外へはみ出したので 16 → 32
 const int CRANK_FULL_MS[CRANK_STEPS] = {
      18,  24,  30,  36,  42,  48,  54,  60,  66,  72,
      78,  84,  90,  96, 102, 108, 114, 120, 126, 132,
@@ -80,7 +83,8 @@ const int CRANK_RAMP[CRANK_STEPS] = {
 // ハーフラインの通過時間 k[ms] で段階 0〜10 を決める
 //   k <= LANE_STAGE_LIMIT[0] なら段階0, <= [1] なら段階1 ... どれにも当てはまらなければ段階10
 #define LANE_STAGES             11
-const int LANE_STAGE_LIMIT[LANE_STAGES - 1] = { 12, 15, 18, 21, 24, 27, 30, 33, 36, 39 };
+const int LANE_STAGE_LIMIT[LANE_STAGES - 1] = { 22, 25, 28, 31, 34, 37, 40, 43, 46, 49 };
+//   LOG0008: 全開で走ってもハーフライン(40mm)の通過時間が 22〜24ms だったので、元の値 { 12, 15, ... } を全部 +10
 
 #define LANE_START_WAIT_MS      50      // ハーフライン通過後、白線の切れ目を探し始めるまでの時間
 #define LANE_STEER_ANGLE        16      // 車線変更で切るハンドル角度（左はマイナスにして使う）
@@ -93,7 +97,7 @@ const unsigned long LANE_STEER_MS[LANE_STAGES] = { 155, 156, 157, 158, 159, 160,
 const int LANE_STRAIGHT_SPEED[LANE_STAGES]   = {  80,  81,  82,  83,  84,  85,  86,  87,  88,  89,  90 };
 
 // ハーフライン通過後の速度変化（shasenhenkou）。考え方はクランクと同じ
-#define LANE_K_MIN              5
+#define LANE_K_MIN              20      // LOG0008: 5 では通過時間 22〜24ms で全開が 296ms 以上続き、中央線の切れ目（約140ms後）まで減速しなかったので 5 → 20
 #define LANE_STEPS              22
 #define LANE_RAMP_STEP_MS       6
 const int LANE_FULL_MS[LANE_STEPS] = {
@@ -132,16 +136,16 @@ const int LANE_RAMP[LANE_STEPS] = {
 //========================================
 // 車体の寸法 [m]
 //========================================
-#define WHEELBASE_M             0.170f  // 前輪の軸と後輪の軸の距離（★）
-#define TREAD_M                 0.150f  // 左右の後輪の中心どうしの距離（★）
-#define SENSOR_TO_REAR_AXLE_M   0.250f  // 後輪の軸からセンサまでの距離（★）
+#define WHEELBASE_M             0.160f  // 前輪の軸と後輪の軸の距離（★）
+#define TREAD_M                 0.127f  // 左右の後輪の中心どうしの距離（★）
+#define SENSOR_TO_REAR_AXLE_M   0.460f  // 後輪の軸からセンサまでの距離（★）
 // センサ8個の左右の位置 [mm]。左端(bit7)から右端(bit0)の順。車体の中心が0、右がプラス（★）
 const int SENSOR_X_MM[8] = { -35, -25, -15, -5, 5, 15, 25, 35 };
 // コースの外に出てはいけない部分の大きさ（クランクとレーンチェンジの経路の計算に使う）
 //   タイヤだけがコース上にあればよい場合：前輪までの距離と、タイヤの外側までの幅の半分を入れる
 //   車体全体がコース上にないといけない場合：車体の前の端までの距離と、車体の幅の半分を入れる（★大会の規則で確認）
-#define CAR_FRONT_M             0.170f  // 後輪の軸から、その部分の一番前まで
-#define CAR_HALF_WIDTH_M        0.090f  // その部分の幅の半分
+#define CAR_FRONT_M             0.470f  // 後輪の軸から、その部分の一番前まで
+#define CAR_HALF_WIDTH_M        0.080f  // その部分の幅の半分
 #define SERVO_MAX_ANGLE         50      // 計算で使ってよいハンドル角度の上限 [度]
 #define SERVO_SPEED_DPS         600.0f  // サーボが角度を変える速さ [度/s]（★サーボの仕様。例: 0.10秒/60度 → 600）
 #define SERVO_DEAD_S            0.010f  // 指令を出してからサーボが動き始めるまでの遅れ [s]（サーボのPWM周期 11ms の半分ほど）
@@ -154,12 +158,12 @@ const int SENSOR_X_MM[8] = { -35, -25, -15, -5, 5, 15, 25, 35 };
                                         //   0 で理論上の限界。サーボの速さ・センサの位置・速さの推定の誤差の分を残す
                                         //   （模擬では 0.010 だと、サーボが 2/3 の速さのときやセンサが 2cm ずれたときにクランクでコースアウトした）
 #define TRACE_MIN_RADIUS_M      0.450f  // カーブの最小半径（規則 450mm 以上。USE_NEW_STEER で使う）
-#define CROSS_LINE_WIDTH_M      0.040f  // クロスラインの進行方向の幅（規則 20〜40mm。★大会のコースで測る）
+#define CROSS_LINE_WIDTH_M      0.020f  // クロスラインの進行方向の幅（規則 20〜40mm。★大会のコースで測る）
 #define HALF_LINE_WIDTH_M       0.040f  // ハーフラインの進行方向の幅（同上）
                                         //   ※ センサが白と判定する範囲の分だけ、線は実際より広く見える。走らせて合わせる（docs/tuning_guide.md 3-3）
                                         //   ※ 実際より広い値にすると速さを多めに見積もる（早めに減速する）ので安全側
-#define CROSS_TO_CRANK_M        0.50f   // クロスラインの終わりからクランクの曲がり角まで（規則 500〜1000mm）
-#define HALF_TO_LANE_M          0.30f   // ハーフラインの終わりから中央線が切れる所まで（規則 300〜1000mm）
+#define CROSS_TO_CRANK_M        0.800f   // クロスラインの終わりからクランクの曲がり角まで（規則 500〜1000mm）
+#define HALF_TO_LANE_M          0.500f   // ハーフラインの終わりから中央線が切れる所まで（規則 300〜1000mm）
 #define LANE_SHIFT_M            0.300f  // 車線変更で横に動く距離（元の線と新しい線の間隔）
 #define LANE_SECTION_M          0.600f  // 中央線が切れてから、新しい車線だけになるまでの長さ（★）
 
@@ -167,7 +171,7 @@ const int SENSOR_X_MM[8] = { -35, -25, -15, -5, 5, 15, 25, 35 };
 // タイヤのグリップ（すべらずに出せる加速度の上限）[m/s²]
 //   横と前後を同時に使うときは「摩擦円」で考える：(前後/GRIP_LONG)² + (横/GRIP_LAT)² ≦ 1
 //========================================
-#define GRIP_LAT_MPS2           8.0f    // 曲がるときの横向き（★実測する）
+#define GRIP_LAT_MPS2           7.0f    // 曲がるときの横向き（★実測する）
 #define GRIP_LONG_MPS2          6.0f    // 加速・ブレーキの前後向き（★実測する）
 // 計算に使うのは、測った値にこの割合をかけた値。1.0 で理論上の限界（測った値どおりなら最速）
 //   タイヤの汚れや温度でグリップは変わり、ラインの通過時間で測る速さにも ±4% ほどの誤差があるので、少し下げておく。
