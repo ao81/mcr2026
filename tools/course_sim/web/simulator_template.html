@@ -476,6 +476,7 @@ function checkRun(v) {
   if (g("USE_NEW_LINE_SHAPE") && !g("USE_NEW_STEER")) return "USE_NEW_LINE_SHAPE は USE_NEW_STEER と一緒に 1 にしてください（実機ではコンパイルできません）";
   if (g("USE_NEW_CURVE_PREVIEW") && !g("USE_NEW_TRACE_SPEED")) return "USE_NEW_CURVE_PREVIEW は USE_NEW_TRACE_SPEED と一緒に 1 にしてください（実機ではコンパイルできません）";
   if (g("USE_NEW_LANE_BRAKE") && !g("USE_NEW_LANE_STEER")) return "USE_NEW_LANE_BRAKE は USE_NEW_LANE_STEER と一緒に 1 にしてください（実機ではコンパイルできません）";
+  if (g("USE_NEW_CRANK_QUICK") && !(g("USE_NEW_CRANK_TURN") && g("USE_NEW_CRANK_BRAKE"))) return "USE_NEW_CRANK_QUICK は USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に 1 にしてください（実機ではコンパイルできません）";
   if (g("USE_NEW_CRANK_BRAKE") && !g("USE_NEW_CRANK_TURN") && !(g("CRANK_ENTRY_MPS") > 0))
     return "USE_NEW_CRANK_TURN が 0 のときは、CRANK_ENTRY_MPS に元の曲がり方でうまく曲がれる速さ（例 1.4）を入れてください（実機ではコンパイルできません）";
   return "";
