@@ -235,11 +235,6 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
 void crank_speed_control_new(void);
 void lane_speed_control_new(void);
 void course_list_setup(void);
-void course_list_start(int sel);
-int course_start_count(void);
-float spot_line_width(char kind, char dir, int pass_ms, float w_now);
-void start_sel_begin(void);
-void start_sel_update(void);
 int course_list_check(void);
 void crank_spot_select(void);
 void crank_spot_done(bool right);
@@ -314,9 +309,6 @@ float trace_v_cap;                     // 直線の速さの上限 [m/s]（TRACE
 float crank_extra_m;                   // クランクの線を見つけてから円弧に入るまでに進む距離 [m]（USE_NEW_BRAKE_RANGE）
 float lane_extra_m;                    // 中央線の切れ目を見つけてからS字に入るまでに進む距離 [m]（同上）
 // これから来るクランク・レーンチェンジの寸法（speed_model.ino の crank_spot_select / lane_spot_select で決める）
-int start_sel;                         // スタート位置の選択（0: 走りながら判断、k: COURSE_START_ROWS の k 番目。run_trace.ino）
-int start_sw_prev;                     // 前の1msのプッシュスイッチ（スタート位置の選択用）
-unsigned long start_sw_ms;             // 最後にスタート位置の選択を進めた時の cnt0
 int spot_no;                           // スタートしてから始めたクランク・レーンチェンジの数（COURSE_LIST の行数で割った余り）
 unsigned int spot_cand;                // まだあり得るスタート位置（COURSE_START_ROWS の i 番目が bit i）。0 は「どれとも合わない」
 unsigned int spot_pend;                // 今のハーフラインの向きと合うスタート位置（レーンチェンジと決まったら spot_cand にする）

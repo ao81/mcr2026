@@ -10,7 +10,6 @@ void run_wait_switch(void) {
         log_st = LOG_INIT;           // ログファイルの作成を始める
         led_out_m(0);
         pattern = PT_WAIT_START;
-        start_sel_begin();           // スタート位置の選択を受け付け始める（今押している分は数えない）
         cnt1 = 0;
         course_out_ms = 0;
         run_ms = 0;
@@ -29,11 +28,9 @@ void run_wait_switch(void) {
 
 //**********************************************************************
 // pattern 1 : スタートバーが開くのを待つ
-//   この間にプッシュスイッチを押すと、スタート位置（config.h の COURSE_START_ROWS）を選べる（start_sel_update）
 //**********************************************************************
 void run_wait_start(void) {
     if (startbar_get() == 0) {       // スタートバーが開いた → スタート
-        course_list_start(start_sel);   // 選んだスタート位置で、クランク・レーンチェンジの表の数え方を始める
         led_out(0x0);
         cnt_start = 0;
         log_st = LOG_WRITE;          // ログの記録を始める
@@ -43,37 +40,8 @@ void run_wait_start(void) {
         run_ms = 0;
         return;
     }
-    start_sel_update();
-    if (start_sel == 0) {
-        // LED2 と LED3 を 0.05秒ずつ交互に点灯（スタート位置は走りながら判断する）
-        led_out((cnt1 % 100 < 50) ? 0x1 : 0x2);
-    } else {
-        // スタート位置を選んだ：COURSE_START_ROWS の1つ目なら LED2、2つ目なら LED3、3つ目なら両方を点けたままにする
-        led_out((unsigned char)(start_sel & 0x3));
-    }
-}
-
-//**********************************************************************
-// スタート位置の選択（pattern 1 の間）
-//   start_sel = 0 : 選ばない。走りながら、クランクで曲がった向きなどから判断する（1つ目のクランクは安全側の値で遅くなる）
-//   start_sel = k : COURSE_START_ROWS の k 番目（1から）からスタートする。1つ目のクランクから表の値どおりに走る
-//   プッシュスイッチを押すたびに 0 → 1 → 2 → … → 0 と変わる（COURSE_LIST_USE が 1 で、位置が2つ以上あるとき）
-//**********************************************************************
-void start_sel_begin(void) {
-    start_sel = 0;
-    start_sw_prev = 1;
-    start_sw_ms = cnt0;
-}
-
-void start_sel_update(void) {
-    int sw = pushsw_get();
-    // 押した瞬間に1つ進める。チャタリングで何回も数えないよう、前に数えてから 200ms は数えない
-    if (sw == 1 && start_sw_prev == 0 && cnt0 - start_sw_ms >= 200) {
-        int n = course_start_count();
-        if (n >= 2) start_sel = (start_sel + 1) % (n + 1);
-        start_sw_ms = cnt0;
-    }
-    start_sw_prev = sw;
+    // LED2 と LED3 を 0.05秒ずつ交互に点灯
+    led_out((cnt1 % 100 < 50) ? 0x1 : 0x2);
 }
 
 //**********************************************************************

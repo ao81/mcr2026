@@ -55,7 +55,6 @@ void run_lane_pass(bool right) {
 #endif
     measure_line_pass(right ? check_shasenhenkoum() : check_shasenhenkouh());
     if (line_pass_state == PASS_DONE) {
-        lane_line_w_m = spot_line_width('H', right ? 'R' : 'L', line_pass_ms, lane_line_w_m);   // 幅が何通りかあるときに1つ選ぶ
         speed_measure_by_line(lane_line_w_m, line_pass_ms);    // 通過時間から速さを測り直す
         reset_distance();                                          // ここから車線変更地点までの距離を数える
         cnt1 = 0;

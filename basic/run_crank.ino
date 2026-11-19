@@ -32,7 +32,6 @@ void run_cross_pass(void) {
 #endif
     measure_line_pass(check_crossline());
     if (line_pass_state == PASS_DONE) {
-        crank_line_w_m = spot_line_width('C', 0, line_pass_ms, crank_line_w_m);   // 幅が何通りかあるときに1つ選ぶ
         speed_measure_by_line(crank_line_w_m, line_pass_ms);   // 通過時間から速さを測り直す
         reset_distance();                                          // ここからクランクまでの距離を数える
         line_pass_state = PASS_WAIT;
