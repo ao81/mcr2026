@@ -29,7 +29,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp -r "$ROOT/basic" "$TMP/basic"
 CFG="$TMP/basic/config.h"
-# 模擬のコースはクランク・レーンチェンジが1つずつなので、config.h の表（CRANK_LIST / LANE_LIST）は使わず、
+# 模擬のコースはクランク・レーンチェンジが1つずつなので、config.h の表（COURSE_LIST）は使わず、
 # CROSS_TO_CRANK_M などの1つの値を使う（表を試すときは COURSE_LIST_USE=1 を付ける）
 sed -i -E 's/^(#define COURSE_LIST_USE +)[0-9]+/\10/' "$CFG"
 IFS=',' read -ra SW <<< "$MODE"

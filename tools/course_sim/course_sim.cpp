@@ -2,12 +2,12 @@
 //
 //   使い方: course_sim <コース> [名前=値 ...]
 //     コース: crank_l crank_r lane_l lane_r curve_l curve_r s_l s_r crank2
-//       crank2 : 右クランク（cross_to、ラインの幅 line_w）→ 直線 gap → 左クランク（cross_to2、ラインの幅 line_w2）
-//                （クランクごとに距離が違うコース。config.h の CRANK_LIST を試すときに使う）
+//       crank2 : クランク（cross_to、ラインの幅 line_w、向き turn1）→ 直線 gap → クランク（cross_to2、line_w2、turn2）
+//                （クランクごとに距離が違うコース。config.h の COURSE_LIST を試すときに使う。turn は +1 右、-1 左）
 //       s_r / s_l : 直線 → 右（左）へ s_deg 度曲がる半径 s_rad の円弧 → 反対へ s_deg 度の円弧 → 直線（S字）
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
 //       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r s_rad s_deg
-//       cross_to2 line_w2 gap（crank2 の2つ目のクランク）
+//       cross_to2 line_w2 gap turn1 turn2（crank2）
 //       sensor_to_axle half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
@@ -70,6 +70,7 @@ struct Course {
     int dir = 1;      // +1 右, -1 左
     double finish = 0;
     double white_x = 0;   // crank2 : 2つ目の曲がり角の x
+    double fin_sy = 1;    // crank2 : 2つ目の後に進む y の向き
 };
 
 static std::map<std::string, double> P = {
@@ -78,7 +79,7 @@ static std::map<std::string, double> P = {
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0},
-    {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5},
+    {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
 };
 
 static Course make_course(const std::string& name) {
@@ -88,23 +89,29 @@ static Course make_course(const std::string& name) {
     double lw = P["line_w"];
     c.dir = (name.back() == 'r') ? 1 : -1;
     if (name == "crank2") {
-        // 1つ目：+y へ進み、右へ曲がって +x へ。2つ目：+x へ進み、左へ曲がって +y へ
+        // 1つ目：+y へ進み、turn1 の向きへ曲がって ±x へ。2つ目：turn2 の向きへ曲がって ±y へ
         c.kind = 4;
         c.dir = 1;
+        auto box = [](double xa, double ya, double xb, double yb) {
+            return Rect{std::min(xa, xb), std::min(ya, yb), std::max(xa, xb), std::max(ya, yb)};
+        };
+        const double sx = P["turn1"] >= 0 ? 1 : -1;                              // 1つ目の後に進む x の向き
+        const double sy = ((P["turn1"] >= 0) == (P["turn2"] >= 0)) ? -1 : 1;     // 2つ目の後に進む y の向き
         double y0 = y1 + lw + P["cross_to"] + LW;                               // 1つ目の曲がり角の線の中心
-        double xc = P["gap"];                                                    // 2つ目のクロスラインの始まり
+        double xc = sx * P["gap"];                                               // 2つ目のクロスラインの始まり
         double lw2 = P["line_w2"];
-        double x0 = xc + lw2 + P["cross_to2"] + LW;                             // 2つ目の曲がり角の線の中心
+        double x0 = sx * (P["gap"] + lw2 + P["cross_to2"] + LW);                // 2つ目の曲がり角の線の中心
         c.white.rects.push_back({-W, y1, W, y1 + lw});                           // 1つ目のクロスライン
         c.white.rects.push_back({-LW, -1, LW, y0 + LW});                         // 中心線（+y）
-        c.white.rects.push_back({-LW, y0 - LW, x0 + LW, y0 + LW});               // 中心線（+x）
-        c.white.rects.push_back({xc, y0 - W, xc + lw2, y0 + W});                 // 2つ目のクロスライン
-        c.white.rects.push_back({x0 - LW, y0 - LW, x0 + LW, y0 + 4});            // 中心線（+y）
+        c.white.rects.push_back(box(-sx * LW, y0 - LW, x0 + sx * LW, y0 + LW));  // 中心線（±x）
+        c.white.rects.push_back(box(xc, y0 - W, xc + sx * lw2, y0 + W));         // 2つ目のクロスライン
+        c.white.rects.push_back(box(x0 - LW, y0 - sy * LW, x0 + LW, y0 + sy * 4));  // 中心線（±y）
         c.surface.rects.push_back({-W, -1, W, y0 + W});
-        c.surface.rects.push_back({-W, y0 - W, x0 + W, y0 + W});
-        c.surface.rects.push_back({x0 - W, y0 - W, x0 + W, y0 + 4});
-        c.finish = y0 + 1.0;
+        c.surface.rects.push_back(box(-sx * W, y0 - W, x0 + sx * W, y0 + W));
+        c.surface.rects.push_back(box(x0 - W, y0 - sy * W, x0 + W, y0 + sy * 4));
+        c.finish = y0 + sy * 1.0;
         c.white_x = x0;
+        c.fin_sy = sy;
         return c;
     }
     if (name.rfind("crank", 0) == 0) {
@@ -316,7 +323,7 @@ int main(int argc, char** argv) {
         bool fin = false;
         if (c.kind == 0) fin = (c.dir > 0) ? (x >= c.finish) : (x <= -c.finish);
         if (c.kind == 1 || c.kind == 3) fin = (y >= c.finish);
-        if (c.kind == 4) fin = (x >= c.white_x - 0.2 && y >= c.finish);
+        if (c.kind == 4) fin = (fabs(x - c.white_x) < 0.2 && c.fin_sy * (y - c.finish) >= 0);
         if (c.kind == 2) { if (y > P["approach"] + 0.2) passed_mid = true; fin = passed_mid && y <= c.finish; }
         if (fin) { t_finish = t - t_start; break; }
         if (pattern >= 800) break;

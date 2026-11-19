@@ -30,7 +30,7 @@ void run_lane_found(bool right) {
     line_pass_state = PASS_WAIT;
     cnt1 = 0;
     pattern = lane_pt(right, PT_LANE_R_PASS, PT_LANE_L_PASS);
-    lane_spot_select(right);                       // これから来るレーンチェンジの距離・ハーフラインの幅（config.h の LANE_LIST）
+    lane_spot_select(right);                       // これから来るレーンチェンジの距離・ハーフラインの幅（config.h の COURSE_LIST）
 #if USE_NEW_BRAKE_RANGE && USE_NEW_LANE_BRAKE
     // センサはハーフラインの始まりにいる。距離をラインの幅の分マイナスから数え、すぐに減速の計算を始める
     if (model_ok) {

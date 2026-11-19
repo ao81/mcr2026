@@ -174,94 +174,136 @@ void correct_lane_speed_by_distance(void) {
 }
 
 //**********************************************************************
-// クランク・レーンチェンジごとの寸法（config.h の CRANK_LIST / LANE_LIST。issue #2）
+// クランク・レーンチェンジごとの寸法（config.h の COURSE_LIST / COURSE_START_ROWS。issue #2）
 //   クロスライン・ハーフラインを見つけた時に、これから来るクランク・レーンチェンジの値を
 //   crank_to_m / crank_line_w_m、lane_to_m / lane_line_w_m に入れる。減速の計算と、通過時間から速さを測るのに使う
+//   スタートの位置がまだ1つに決まっていないときは、あり得る行の中で一番短い距離・一番広い線の幅を使い、
+//   曲がった向き・ハーフラインの向きと合わない位置を外していく
 //**********************************************************************
-#define CRANK_LIST_N ((int)(sizeof(CRANK_LIST) / sizeof(CRANK_LIST[0])))
-#define LANE_LIST_N  ((int)(sizeof(LANE_LIST) / sizeof(LANE_LIST[0])))
+#define SPOT_N   ((int)(sizeof(COURSE_LIST) / sizeof(COURSE_LIST[0])))
+#define START_N  ((int)(sizeof(COURSE_START_ROWS) / sizeof(COURSE_START_ROWS[0])))
 
-// 数え間違えたときに使う値：表の中で一番短い距離と、一番広い線の幅（どちらもブレーキが早くなる側）
-float list_min_to_m(const CourseSpot* list, int n) {
-    float v = list[0].to_m;
-    for (int i = 1; i < n; i++) if (list[i].to_m < v) v = list[i].to_m;
-    return v;
-}
-float list_max_w_m(const CourseSpot* list, int n) {
-    float v = list[0].line_w_m;
-    for (int i = 1; i < n; i++) if (list[i].line_w_m > v) v = list[i].line_w_m;
-    return v;
+// スタート位置 i から数えて、今のクランク・レーンチェンジは表の何行目か
+int spot_row(int i) {
+    return (COURSE_START_ROWS[i] + spot_no) % SPOT_N;
 }
 
-// setup から呼ぶ：数を0に戻し、1つ目の値を入れておく
+// kind ('C' / 'H') の行のうち、cand の位置から見て今あり得るものの一番短い距離と一番広い線の幅を求める。
+// dir が 0 でないときは向きも合うものだけ。合う位置を bit で返す（0 なら1つもない）
+unsigned int spot_match(unsigned int cand, char kind, char dir, float* to_m, float* w_m) {
+    unsigned int m = 0;
+    float to = 1.0e6f, w = 0.0f;
+    for (int i = 0; i < START_N; i++) {
+        if (!(cand & (1u << i))) continue;
+        const CourseSpot& s = COURSE_LIST[spot_row(i)];
+        if (s.kind != kind || (dir != 0 && s.dir != dir)) continue;
+        m |= 1u << i;
+        if (s.to_m < to) to = s.to_m;
+        if (s.line_w_m > w) w = s.line_w_m;
+    }
+    *to_m = to;
+    *w_m = w;
+    return m;
+}
+
+// どの行とも合わないときの値：表の中で kind の一番短い距離と一番広い線の幅。その種類の行が無ければ 0 を返す
+int spot_fallback(char kind, float* to_m, float* w_m) {
+    float to = 1.0e6f, w = 0.0f;
+    int n = 0;
+    for (int r = 0; r < SPOT_N; r++) {
+        const CourseSpot& s = COURSE_LIST[r];
+        if (s.kind != kind) continue;
+        n++;
+        if (s.to_m < to) to = s.to_m;
+        if (s.line_w_m > w) w = s.line_w_m;
+    }
+    *to_m = to;
+    *w_m = w;
+    return n;
+}
+
+int spot_ok;                                      // 1: COURSE_LIST / COURSE_START_ROWS が正しく書かれている
+
+// COURSE_LIST / COURSE_START_ROWS が正しく書かれているか（正しくなければ表を使わない。model_ok も 0 になる）
+int course_list_check(void) {
+    if (!(LINE_SEEN_EXTRA_M >= 0.0f && LINE_SEEN_EXTRA_M < 0.05f)) return 0;
+    for (int r = 0; r < SPOT_N; r++) {
+        const CourseSpot& s = COURSE_LIST[r];
+        if (!(s.kind == 'C' || s.kind == 'H')) return 0;
+        if (!(s.to_m > 0.0f && s.to_m < 5.0f && s.line_w_m >= 0.0f && s.line_w_m < 0.2f)) return 0;
+        if (!(s.dir == 'R' || s.dir == 'L')) return 0;
+    }
+    if (START_N > 16) return 0;
+    for (int i = 0; i < START_N; i++) {
+        if (!(COURSE_START_ROWS[i] >= 0 && COURSE_START_ROWS[i] < SPOT_N)) return 0;
+    }
+    return 1;
+}
+
+// setup から呼ぶ：数を0に戻し、すべてのスタート位置をあり得るものにする
 void course_list_setup(void) {
-    crank_no = 0;
-    lane_no = 0;
-    crank_list_ng = 0;
-    lane_list_ng = 0;
-    lane_dir_ng = 0;
+    spot_ok = course_list_check();
+    spot_no = 0;
+    spot_cand = (START_N >= 16) ? 0xffffu : ((1u << START_N) - 1u);
+    spot_pend = 0;
     crank_spot_select();
     lane_spot_select(true);
-    lane_dir_ng = 0;
 }
 
 // クロスラインを見つけた時（pattern 100）に呼ぶ
 void crank_spot_select(void) {
-    if (!COURSE_LIST_USE) {
-        crank_to_m = CROSS_TO_CRANK_M;
-        crank_line_w_m = CROSS_LINE_WIDTH_M;
+    float to, w;
+    if (COURSE_LIST_USE && spot_ok && (spot_match(spot_cand, 'C', 0, &to, &w) || spot_fallback('C', &to, &w))) {
+        crank_to_m = to;
+        crank_line_w_m = w + LINE_SEEN_EXTRA_M;
         return;
     }
-    if (!crank_list_ng && crank_no < CRANK_LIST_N) {
-        crank_to_m = CRANK_LIST[crank_no].to_m;
-        crank_line_w_m = CRANK_LIST[crank_no].line_w_m + LINE_SEEN_EXTRA_M;
-    } else {
-        crank_to_m = list_min_to_m(CRANK_LIST, CRANK_LIST_N);
-        crank_line_w_m = list_max_w_m(CRANK_LIST, CRANK_LIST_N) + LINE_SEEN_EXTRA_M;
-    }
+    crank_to_m = CROSS_TO_CRANK_M;                 // 表を使わない、または表にクランクが無い
+    crank_line_w_m = CROSS_LINE_WIDTH_M;
 }
 
-// クランクの曲がり角を見つけて、曲がる向きが決まった時に呼ぶ。向きが表と違ったら、この後は一番短い距離を使う
+// クランクの曲がり角を見つけて、曲がる向きが決まった時に呼ぶ。向きの合わないスタート位置を外し、次へ数を進める
 void crank_spot_done(bool right) {
-    if (!COURSE_LIST_USE) return;
-    if (crank_no < CRANK_LIST_N) {
-        char d = CRANK_LIST[crank_no].dir;
-        if (d != 0 && d != (right ? 'R' : 'L')) crank_list_ng = 1;
-    }
-    if (crank_no < 1000) crank_no++;
+    if (!(COURSE_LIST_USE && spot_ok)) return;
+    float to, w;
+    spot_cand = spot_match(spot_cand, 'C', right ? 'R' : 'L', &to, &w);
+    spot_no = (spot_no + 1) % SPOT_N;              // 表の最後の次は最初の行（1周）
 }
 
 // ハーフラインを見つけた時（pattern 200 / 500）に呼ぶ。right: 右レーンチェンジのハーフライン
-//   向きが表と違うときは、このレーンチェンジから一番短い距離を使う
-//   （後でクロスラインだったと分かることがあるので、数え間違えたと決めるのは lane_spot_done）
+//   後でクロスラインだったと分かることがあるので、スタート位置を外すのは lane_spot_done で行う
 void lane_spot_select(bool right) {
     lane_to_exact = 1;
-    if (!COURSE_LIST_USE) {
-        lane_to_m = HALF_TO_LANE_M;
-        lane_line_w_m = HALF_LINE_WIDTH_M;
+    float to, w;
+    if (COURSE_LIST_USE && spot_ok) {
+        spot_pend = spot_match(spot_cand, 'H', right ? 'R' : 'L', &to, &w);
+        if (spot_pend) {
+            // あり得る行の距離が全部同じときだけ、距離で速さを直してよい
+            for (int i = 0; i < START_N; i++) {
+                if (!(spot_pend & (1u << i))) continue;
+                if (COURSE_LIST[spot_row(i)].to_m != to) lane_to_exact = 0;
+            }
+        } else {
+            lane_to_exact = 0;
+            if (!spot_fallback('H', &to, &w)) {
+                to = HALF_TO_LANE_M;               // 表にレーンチェンジが無い
+                w = HALF_LINE_WIDTH_M - LINE_SEEN_EXTRA_M;
+            }
+        }
+        lane_to_m = to;
+        lane_line_w_m = w + LINE_SEEN_EXTRA_M;
         return;
     }
-    lane_dir_ng = 0;
-    if (lane_no < LANE_LIST_N) {
-        char d = LANE_LIST[lane_no].dir;
-        if (d != 0 && d != (right ? 'R' : 'L')) lane_dir_ng = 1;
-    }
-    if (!lane_list_ng && !lane_dir_ng && lane_no < LANE_LIST_N) {
-        lane_to_m = LANE_LIST[lane_no].to_m;
-        lane_line_w_m = LANE_LIST[lane_no].line_w_m + LINE_SEEN_EXTRA_M;
-    } else {
-        lane_to_m = list_min_to_m(LANE_LIST, LANE_LIST_N);
-        lane_line_w_m = list_max_w_m(LANE_LIST, LANE_LIST_N) + LINE_SEEN_EXTRA_M;
-        lane_to_exact = 0;
-    }
+    lane_to_m = HALF_TO_LANE_M;
+    lane_line_w_m = HALF_LINE_WIDTH_M;
 }
 
 // ハーフラインを通過し終えて、クロスラインではなくレーンチェンジだと決まった時（pattern 202 / 502）に呼ぶ
 void lane_spot_done(void) {
-    if (!COURSE_LIST_USE) return;
-    if (lane_dir_ng) lane_list_ng = 1;
-    lane_dir_ng = 0;
-    if (lane_no < 1000) lane_no++;
+    if (!(COURSE_LIST_USE && spot_ok)) return;
+    spot_cand = spot_pend;
+    spot_pend = 0;
+    spot_no = (spot_no + 1) % SPOT_N;              // 表の最後の次は最初の行（1周）
 }
 
 // 距離を0に戻す（ラインを通過し終わった時などに呼ぶ）。ブレーキの状態も最初に戻す
@@ -566,18 +608,6 @@ int model_check_config(void) {
     if (!(SERVO_SPEED_DPS > 10.0f && SERVO_DEAD_S >= 0.0f && SERVO_DEAD_S < 0.1f)) return 0;
     if (!(SERVO_MAX_ANGLE > 5 && SERVO_MAX_ANGLE < 80)) return 0;
     if (!(CROSS_LINE_WIDTH_M >= 0.0f && HALF_LINE_WIDTH_M >= 0.0f)) return 0;
-    if (COURSE_LIST_USE) {                         // クランク・レーンチェンジごとの寸法の表
-        if (!(LINE_SEEN_EXTRA_M >= 0.0f && LINE_SEEN_EXTRA_M < 0.05f)) return 0;
-        for (int i = 0; i < CRANK_LIST_N; i++) {
-            const CourseSpot& s = CRANK_LIST[i];
-            if (!(s.to_m > 0.0f && s.to_m < 5.0f && s.line_w_m >= 0.0f && s.line_w_m < 0.2f)) return 0;
-            if (!(s.dir == 0 || s.dir == 'R' || s.dir == 'L')) return 0;
-        }
-        for (int i = 0; i < LANE_LIST_N; i++) {
-            const CourseSpot& s = LANE_LIST[i];
-            if (!(s.to_m > 0.0f && s.to_m < 5.0f && s.line_w_m >= 0.0f && s.line_w_m < 0.2f)) return 0;
-            if (!(s.dir == 0 || s.dir == 'R' || s.dir == 'L')) return 0;
-        }
-    }
+    if (COURSE_LIST_USE && !course_list_check()) return 0;   // クランク・レーンチェンジごとの寸法の表
     return 1;
 }

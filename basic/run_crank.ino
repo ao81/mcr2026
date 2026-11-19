@@ -11,7 +11,7 @@ void run_cross_found(void) {
     line_pass_state = PASS_WAIT;
     cnt1 = 0;
     pattern = PT_CROSS_PASS;
-    crank_spot_select();                           // これから来るクランクの距離・クロスラインの幅（config.h の CRANK_LIST）
+    crank_spot_select();                           // これから来るクランクの距離・クロスラインの幅（config.h の COURSE_LIST）
 #if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
     // センサはクロスラインの始まりにいる。ラインの終わりまでは crank_line_w_m あるので、距離をその分マイナスから数え、
     // 通過時間を測り終わるのを待たずに、今の速さの推定で減速を始める（通過し終えたら測った速さで計算し直す）
