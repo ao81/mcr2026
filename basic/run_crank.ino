@@ -11,12 +11,13 @@ void run_cross_found(void) {
     line_pass_state = PASS_WAIT;
     cnt1 = 0;
     pattern = PT_CROSS_PASS;
+    crank_spot_select();                           // これから来るクランクの距離・クロスラインの幅（config.h の CRANK_LIST）
 #if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
-    // センサはクロスラインの始まりにいる。ラインの終わりまでは CROSS_LINE_WIDTH_M あるので、距離をその分マイナスから数え、
+    // センサはクロスラインの始まりにいる。ラインの終わりまでは crank_line_w_m あるので、距離をその分マイナスから数え、
     // 通過時間を測り終わるのを待たずに、今の速さの推定で減速を始める（通過し終えたら測った速さで計算し直す）
     if (model_ok) {
         reset_distance();
-        dist_m = -CROSS_LINE_WIDTH_M;
+        dist_m = -crank_line_w_m;
         crank_speed_control_new();
     }
 #endif
@@ -31,7 +32,7 @@ void run_cross_pass(void) {
 #endif
     measure_line_pass(check_crossline());
     if (line_pass_state == PASS_DONE) {
-        speed_measure_by_line(CROSS_LINE_WIDTH_M, line_pass_ms);   // 通過時間から速さを測り直す
+        speed_measure_by_line(crank_line_w_m, line_pass_ms);   // 通過時間から速さを測り直す
         reset_distance();                                          // ここからクランクまでの距離を数える
         line_pass_state = PASS_WAIT;
         cnt1 = 0;
@@ -63,6 +64,7 @@ void run_crank_search(void) {
     apply_table(LINE_STEER_SENSOR, LINE_STEER_ACT, LINE_STEER_N, c);
 
     if (c == 0xe0 || c == 0xf0 || c == 0xf8 || c == 0xfc) {        // 左クランク
+        crank_spot_done(false);                                     // 曲がる向きを表と比べ、次のクランクへ数を進める
 #if USE_NEW_CRANK_TURN
         if (crank_start_arc(false)) return;                         // 計算した円弧で曲がる
 #endif
@@ -71,6 +73,7 @@ void run_crank_search(void) {
         cnt1 = 0;
         pattern = PT_CRANK_L_ENTER;
     } else if (c == 0x07 || c == 0x0f || c == 0x1f || c == 0x3f) { // 右クランク
+        crank_spot_done(true);
 #if USE_NEW_CRANK_TURN
         if (crank_start_arc(true)) return;
 #endif

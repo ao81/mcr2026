@@ -30,7 +30,7 @@ tools/course_sim/run.sh <スイッチ> [コース名 ...] [名前=値 ...]
 | 引数 | 内容 |
 |---|---|
 | `<スイッチ>` | `config.h` の書き換えをカンマで区切って並べます。書き換えるのはコピーで、`basic/config.h` 自体は変わりません。<br>`off`：`USE_NEW_*` をすべて 0<br>`all`：`USE_NEW_*` をすべて 1<br>`名前=値`：その `#define` の値を書き換える<br>例：`all,CROSS_TO_CRANK_M=1.0f,PLAN_GRIP_RATIO_LAT=1.0f` |
-| コース名 | `crank_l` `crank_r` `lane_l` `lane_r` `curve_l` `curve_r` `s_l` `s_r`。省略すると8つすべて |
+| コース名 | `crank_l` `crank_r` `lane_l` `lane_r` `curve_l` `curve_r` `s_l` `s_r` `crank2`。省略すると `crank2` 以外の8つすべて。<br>`crank2` は、右クランク（`cross_to`・`line_w`）→ 直線 `gap` → 左クランク（`cross_to2`・`line_w2`）と2つ続くコースで、`config.h` の `CRANK_LIST` を試すときに使います |
 | `名前=値` | 模擬の車とコースの「本当の値」（下の表）。プログラム側の `config.h` の値はそのままなので、「設定と本当の値がずれていた場合」を試せます |
 | `avg=1` | スタートから特別な線までの距離を 1.400〜1.500m の7通りに変えて走らせ、平均の時間・失敗の回数・横Gの最大を1行で出します |
 
@@ -63,6 +63,7 @@ tools/course_sim/run.sh <スイッチ> [コース名 ...] [名前=値 ...]
 | `dip` | `3` | DIPスイッチの値（3 = 出力100%） |
 | `ms` | `6000` | 模擬する時間の上限 [ms] |
 | `trace` | `0` | `1` にすると 10ms ごとの状態を表示する（下の 3 を参照） |
+| `cross_to2` / `line_w2` / `gap` | `0.6` / `0.032` / `1.5` | `crank2` の2つ目のクランク：クロスラインから曲がり角まで、ラインの幅、1つ目の曲がり角からクロスラインまで [m] |
 | `dump` | `0` | `N` にすると N ms ごとの状態を、`simulator.html` が読む形で出す（4-6 を参照。自分で付ける必要はない） |
 
 例：「本当の横のグリップが設定より 10% 低かったら」
@@ -72,6 +73,13 @@ tools/course_sim/run.sh all,CROSS_TO_CRANK_M=1.0f crank_l cross_to=1.0 grip_lat=
 ```
 
 `CROSS_TO_CRANK_M`（プログラムが思っている距離）と `cross_to`（模擬のコースの距離）は、普通は同じ値にします。
+
+`run.sh` は、`config.h` の `COURSE_LIST_USE` を 0 にしてから走らせます（模擬のコースはクランク・レーンチェンジが1つずつなので、表 `CRANK_LIST` / `LANE_LIST` ではなく `CROSS_TO_CRANK_M` などの1つの値を使う）。表を試すときは `COURSE_LIST_USE=1` を付けます。模擬の線は `line_w + 2 × spot` に見えるので、`LINE_SEEN_EXTRA_M=0.008f` も付けます。
+
+```sh
+# 表の1つ目（右 0.8m・幅20mm）と2つ目（左 0.7m・幅30mm）と同じ2つのクランク
+tools/course_sim/run.sh all,COURSE_LIST_USE=1,LINE_SEEN_EXTRA_M=0.008f crank2 cross_to=0.8 line_w=0.02 cross_to2=0.7 line_w2=0.03 avg=1
+```
 
 ---
 

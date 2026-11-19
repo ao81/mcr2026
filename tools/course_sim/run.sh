@@ -6,7 +6,7 @@
 #                 all : USE_NEW_* をすべて 1
 #                 名前=値 : その #define を書き換える。例: all,CROSS_TO_CRANK_M=0.70f
 #                 例: off,USE_NEW_CRANK_TURN=1,USE_NEW_CRANK_BRAKE=1
-#     コース名   crank_l crank_r lane_l lane_r curve_l curve_r s_l s_r（省略するとすべて）
+#     コース名   crank_l crank_r lane_l lane_r curve_l curve_r s_l s_r crank2（省略すると crank2 以外のすべて）
 #     名前=値    車とコースの本当の値（course_sim.cpp の先頭を参照）。例: grip_lat=6 v_max=2.7
 #                avg=1 を付けると、スタートから特別な線までの距離を 1.400〜1.500m の7通りに変えて走らせ、
 #                平均の時間・失敗の回数・横Gの最大を1行で出す（ラインの通過時間は1ms単位なので、
@@ -29,6 +29,9 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp -r "$ROOT/basic" "$TMP/basic"
 CFG="$TMP/basic/config.h"
+# 模擬のコースはクランク・レーンチェンジが1つずつなので、config.h の表（CRANK_LIST / LANE_LIST）は使わず、
+# CROSS_TO_CRANK_M などの1つの値を使う（表を試すときは COURSE_LIST_USE=1 を付ける）
+sed -i -E 's/^(#define COURSE_LIST_USE +)[0-9]+/\10/' "$CFG"
 IFS=',' read -ra SW <<< "$MODE"
 for kv in "${SW[@]}"; do
   case "$kv" in

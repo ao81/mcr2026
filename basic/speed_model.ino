@@ -157,10 +157,11 @@ void speed_measure_by_line(float width_m, int pass_ms) {
 
 // ハーフライン退出後の積算距離を、中央線の切れ目で一度だけ照合する。
 void correct_lane_speed_by_distance(void) {
-    if (!model_ok || !(dist_m > 0.0f && speed_mps > 0.5f && HALF_TO_LANE_M > 0.0f)) return;
+    if (!lane_to_exact) return;                   // このレーンチェンジの距離が分からない（一番短い値で代えている）
+    if (!model_ok || !(dist_m > 0.0f && speed_mps > 0.5f && lane_to_m > 0.0f)) return;
     const float margin = 2.0f * v_max_mps * 0.001f;
-    const float measured = fminf(fmaxf(dist_m, HALF_TO_LANE_M - margin),
-                                 HALF_TO_LANE_M + margin);
+    const float measured = fminf(fmaxf(dist_m, lane_to_m - margin),
+                                 lane_to_m + margin);
     const float ratio = measured / dist_m;
     if (!(ratio >= 0.8f && ratio <= 1.25f) || ratio == 1.0f) return;
     if (USE_NEW_LANE_DOWN_ONLY && ratio > 1.0f) return;
@@ -170,6 +171,97 @@ void correct_lane_speed_by_distance(void) {
     v_max_mps = fminf(V_MAX_MPS * (1.0f + VMAX_LEARN_RANGE),
                       fmaxf(V_MAX_MPS * (1.0f - VMAX_LEARN_RANGE), v_max_mps * ratio));
 #endif
+}
+
+//**********************************************************************
+// クランク・レーンチェンジごとの寸法（config.h の CRANK_LIST / LANE_LIST。issue #2）
+//   クロスライン・ハーフラインを見つけた時に、これから来るクランク・レーンチェンジの値を
+//   crank_to_m / crank_line_w_m、lane_to_m / lane_line_w_m に入れる。減速の計算と、通過時間から速さを測るのに使う
+//**********************************************************************
+#define CRANK_LIST_N ((int)(sizeof(CRANK_LIST) / sizeof(CRANK_LIST[0])))
+#define LANE_LIST_N  ((int)(sizeof(LANE_LIST) / sizeof(LANE_LIST[0])))
+
+// 数え間違えたときに使う値：表の中で一番短い距離と、一番広い線の幅（どちらもブレーキが早くなる側）
+float list_min_to_m(const CourseSpot* list, int n) {
+    float v = list[0].to_m;
+    for (int i = 1; i < n; i++) if (list[i].to_m < v) v = list[i].to_m;
+    return v;
+}
+float list_max_w_m(const CourseSpot* list, int n) {
+    float v = list[0].line_w_m;
+    for (int i = 1; i < n; i++) if (list[i].line_w_m > v) v = list[i].line_w_m;
+    return v;
+}
+
+// setup から呼ぶ：数を0に戻し、1つ目の値を入れておく
+void course_list_setup(void) {
+    crank_no = 0;
+    lane_no = 0;
+    crank_list_ng = 0;
+    lane_list_ng = 0;
+    lane_dir_ng = 0;
+    crank_spot_select();
+    lane_spot_select(true);
+    lane_dir_ng = 0;
+}
+
+// クロスラインを見つけた時（pattern 100）に呼ぶ
+void crank_spot_select(void) {
+    if (!COURSE_LIST_USE) {
+        crank_to_m = CROSS_TO_CRANK_M;
+        crank_line_w_m = CROSS_LINE_WIDTH_M;
+        return;
+    }
+    if (!crank_list_ng && crank_no < CRANK_LIST_N) {
+        crank_to_m = CRANK_LIST[crank_no].to_m;
+        crank_line_w_m = CRANK_LIST[crank_no].line_w_m + LINE_SEEN_EXTRA_M;
+    } else {
+        crank_to_m = list_min_to_m(CRANK_LIST, CRANK_LIST_N);
+        crank_line_w_m = list_max_w_m(CRANK_LIST, CRANK_LIST_N) + LINE_SEEN_EXTRA_M;
+    }
+}
+
+// クランクの曲がり角を見つけて、曲がる向きが決まった時に呼ぶ。向きが表と違ったら、この後は一番短い距離を使う
+void crank_spot_done(bool right) {
+    if (!COURSE_LIST_USE) return;
+    if (crank_no < CRANK_LIST_N) {
+        char d = CRANK_LIST[crank_no].dir;
+        if (d != 0 && d != (right ? 'R' : 'L')) crank_list_ng = 1;
+    }
+    if (crank_no < 1000) crank_no++;
+}
+
+// ハーフラインを見つけた時（pattern 200 / 500）に呼ぶ。right: 右レーンチェンジのハーフライン
+//   向きが表と違うときは、このレーンチェンジから一番短い距離を使う
+//   （後でクロスラインだったと分かることがあるので、数え間違えたと決めるのは lane_spot_done）
+void lane_spot_select(bool right) {
+    lane_to_exact = 1;
+    if (!COURSE_LIST_USE) {
+        lane_to_m = HALF_TO_LANE_M;
+        lane_line_w_m = HALF_LINE_WIDTH_M;
+        return;
+    }
+    lane_dir_ng = 0;
+    if (lane_no < LANE_LIST_N) {
+        char d = LANE_LIST[lane_no].dir;
+        if (d != 0 && d != (right ? 'R' : 'L')) lane_dir_ng = 1;
+    }
+    if (!lane_list_ng && !lane_dir_ng && lane_no < LANE_LIST_N) {
+        lane_to_m = LANE_LIST[lane_no].to_m;
+        lane_line_w_m = LANE_LIST[lane_no].line_w_m + LINE_SEEN_EXTRA_M;
+    } else {
+        lane_to_m = list_min_to_m(LANE_LIST, LANE_LIST_N);
+        lane_line_w_m = list_max_w_m(LANE_LIST, LANE_LIST_N) + LINE_SEEN_EXTRA_M;
+        lane_to_exact = 0;
+    }
+}
+
+// ハーフラインを通過し終えて、クロスラインではなくレーンチェンジだと決まった時（pattern 202 / 502）に呼ぶ
+void lane_spot_done(void) {
+    if (!COURSE_LIST_USE) return;
+    if (lane_dir_ng) lane_list_ng = 1;
+    lane_dir_ng = 0;
+    if (lane_no < 1000) lane_no++;
 }
 
 // 距離を0に戻す（ラインを通過し終わった時などに呼ぶ）。ブレーキの状態も最初に戻す
@@ -255,7 +347,7 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
 // クロスライン通過後（pattern 102, 103）の新しい減速
 //**********************************************************************
 void crank_speed_control_new(void) {
-    float remain = CROSS_TO_CRANK_M - dist_m;
+    float remain = crank_to_m - dist_m;
 #if USE_NEW_BRAKE_RANGE
     remain = remain + crank_extra_m;                // 曲がり角の線を見つけた後、円弧に入るまでにも進む
 #endif
@@ -267,7 +359,7 @@ void crank_speed_control_new(void) {
 // ハーフライン通過後（pattern 202, 300〜310 / 502, 600〜610）の新しい減速
 //**********************************************************************
 void lane_speed_control_new(void) {
-    float remain = HALF_TO_LANE_M - dist_m;
+    float remain = lane_to_m - dist_m;
 #if USE_NEW_BRAKE_RANGE
     remain = remain + lane_extra_m;                 // 中央線の切れ目を見つけた後、S字に入るまでにも進む
 #endif
@@ -474,5 +566,18 @@ int model_check_config(void) {
     if (!(SERVO_SPEED_DPS > 10.0f && SERVO_DEAD_S >= 0.0f && SERVO_DEAD_S < 0.1f)) return 0;
     if (!(SERVO_MAX_ANGLE > 5 && SERVO_MAX_ANGLE < 80)) return 0;
     if (!(CROSS_LINE_WIDTH_M >= 0.0f && HALF_LINE_WIDTH_M >= 0.0f)) return 0;
+    if (COURSE_LIST_USE) {                         // クランク・レーンチェンジごとの寸法の表
+        if (!(LINE_SEEN_EXTRA_M >= 0.0f && LINE_SEEN_EXTRA_M < 0.05f)) return 0;
+        for (int i = 0; i < CRANK_LIST_N; i++) {
+            const CourseSpot& s = CRANK_LIST[i];
+            if (!(s.to_m > 0.0f && s.to_m < 5.0f && s.line_w_m >= 0.0f && s.line_w_m < 0.2f)) return 0;
+            if (!(s.dir == 0 || s.dir == 'R' || s.dir == 'L')) return 0;
+        }
+        for (int i = 0; i < LANE_LIST_N; i++) {
+            const CourseSpot& s = LANE_LIST[i];
+            if (!(s.to_m > 0.0f && s.to_m < 5.0f && s.line_w_m >= 0.0f && s.line_w_m < 0.2f)) return 0;
+            if (!(s.dir == 0 || s.dir == 'R' || s.dir == 'L')) return 0;
+        }
+    }
     return 1;
 }

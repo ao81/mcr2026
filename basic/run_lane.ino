@@ -30,11 +30,12 @@ void run_lane_found(bool right) {
     line_pass_state = PASS_WAIT;
     cnt1 = 0;
     pattern = lane_pt(right, PT_LANE_R_PASS, PT_LANE_L_PASS);
+    lane_spot_select(right);                       // これから来るレーンチェンジの距離・ハーフラインの幅（config.h の LANE_LIST）
 #if USE_NEW_BRAKE_RANGE && USE_NEW_LANE_BRAKE
     // センサはハーフラインの始まりにいる。距離をラインの幅の分マイナスから数え、すぐに減速の計算を始める
     if (model_ok) {
         reset_distance();
-        dist_m = -HALF_LINE_WIDTH_M;
+        dist_m = -lane_line_w_m;
         lane_speed_control_new();
     }
 #endif
@@ -54,7 +55,7 @@ void run_lane_pass(bool right) {
 #endif
     measure_line_pass(right ? check_shasenhenkoum() : check_shasenhenkouh());
     if (line_pass_state == PASS_DONE) {
-        speed_measure_by_line(HALF_LINE_WIDTH_M, line_pass_ms);    // 通過時間から速さを測り直す
+        speed_measure_by_line(lane_line_w_m, line_pass_ms);    // 通過時間から速さを測り直す
         reset_distance();                                          // ここから車線変更地点までの距離を数える
         cnt1 = 0;
         pattern = lane_pt(right, PT_LANE_R_SELECT, PT_LANE_L_SELECT);
@@ -73,6 +74,7 @@ void run_lane_select(bool right) {
         return;
     }
     line_pass_state = PASS_WAIT;
+    lane_spot_done();                              // クロスラインではなかった。向きを表と比べ、次のレーンチェンジへ数を進める
     lane_speed_control();
 
     int stage = LANE_STAGES - 1;

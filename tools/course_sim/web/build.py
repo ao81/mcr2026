@@ -41,6 +41,9 @@ def convert_config(text):
                 while j < len(lines) and re.match(r"^\s+//", lines[j]):
                     comment += " " + lines[j].strip()[2:].strip()
                     j += 1
+                if name == "COURSE_LIST_USE":
+                    # 模擬のコースはクランク・レーンチェンジが1つずつなので、初めは表を使わない（画面の値を使う）
+                    v = "0"
                 idx = len(items)
                 items.append({"name": name, "kind": kind, "def": float(v), "section": "スイッチ" if kind == "switch" else section, "comment": comment})
                 cast = "(float)" if kind == "float" else "(int)"

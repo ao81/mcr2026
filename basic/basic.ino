@@ -234,6 +234,11 @@ int power_of_speed(float u);
 int brake_power_for(float remain_m, float v_target, int brake_power, float margin_m);
 void crank_speed_control_new(void);
 void lane_speed_control_new(void);
+void course_list_setup(void);
+void crank_spot_select(void);
+void crank_spot_done(bool right);
+void lane_spot_select(bool right);
+void lane_spot_done(void);
 void drive_at(float v_target, float angle);
 float corner_speed(float k_abs);
 void trace_motor_new(int angle);
@@ -302,6 +307,17 @@ float obs_k_lim = 10.0f;               // 線の曲がり具合の推定の上�
 float trace_v_cap;                     // 直線の速さの上限 [m/s]（TRACE_SAFE_RADIUS_M。0 なら上限なし）
 float crank_extra_m;                   // クランクの線を見つけてから円弧に入るまでに進む距離 [m]（USE_NEW_BRAKE_RANGE）
 float lane_extra_m;                    // 中央線の切れ目を見つけてからS字に入るまでに進む距離 [m]（同上）
+// これから来るクランク・レーンチェンジの寸法（speed_model.ino の crank_spot_select / lane_spot_select で決める）
+int crank_no;                          // これまでに曲がり始めたクランクの数（次は CRANK_LIST の何番目か）
+int lane_no;                           // これまでに始めたレーンチェンジの数（次は LANE_LIST の何番目か）
+int crank_list_ng;                     // 1: クランクの向きが表と合わなかった。この後は表の一番短い距離・一番広い線の幅を使う
+int lane_list_ng;                      // 1: レーンチェンジの向きが表と合わなかった（同上）
+int lane_dir_ng;                       // 1: 今のハーフラインの向きが表と合わない（レーンチェンジと決まったら lane_list_ng にする）
+float crank_to_m;                      // 今のクランク：クロスラインの終わりから曲がり角まで [m]
+float crank_line_w_m;                  // 今のクランク：クロスラインの幅 [m]
+float lane_to_m;                       // 今のレーンチェンジ：ハーフラインの終わりから中央線が切れる所まで [m]
+float lane_line_w_m;                   // 今のレーンチェンジ：ハーフラインの幅 [m]
+int lane_to_exact;                     // 1: lane_to_m はそのレーンチェンジの値（0 は一番短い値で代えている。距離で速さを直すのに使わない）
 
 FspTimer fsp_timer;                    // 1ms割り込み用タイマ
 

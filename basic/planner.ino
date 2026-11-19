@@ -281,6 +281,7 @@ float pre_turn_m(float v, float r, float wait) {
 void plan_setup(void) {
     model_ok = model_check_config();
     model_bad_cnt = 0;
+    course_list_setup();
     crank_entry_mps = (CRANK_ENTRY_MPS > 0.0f) ? CRANK_ENTRY_MPS : crank_turn_speed_auto();
     lane_entry_mps  = (LANE_ENTRY_MPS  > 0.0f) ? LANE_ENTRY_MPS  : lane_turn_speed_auto();
     pursuit_ld = pursuit_lookahead_m();
