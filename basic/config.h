@@ -127,6 +127,7 @@ const int LANE_RAMP[LANE_STEPS] = {
 #define USE_NEW_VMAX_LEARN      0   // ラインの通過で測った速さから、出力100%のときの速さ（電池の電圧で変わる）を走りながら直す（ラインの幅を合わせてから使う）
 #define USE_NEW_LINE_SHAPE      0   // センサと自分のハンドル角度から線の位置・向き・曲がり具合を推定し、サーボの遅れの分だけ先の状態でハンドルを切る（USE_NEW_STEER と一緒に使う）
 #define USE_NEW_CURVE_PREVIEW   0   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
+#define USE_NEW_CRANK_QUICK     0   // クランクを、手前で少しだけ減速し、ハンドルを大きく切って短い時間で90°曲がり、曲がり終わる前にハンドルを戻し始める（USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に使う）
 #define USE_NEW_BRAKE_RANGE     0   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
 
 #define USE_NEW_LANE_WIDTH_INTERVAL  0   // ハーフライン通過時、1msの測定誤差で説明できる速度のずれを除いて補正する
@@ -157,6 +158,7 @@ const int SENSOR_X_MM[8] = { -35, -25, -15, -5, 5, 15, 25, 35 };
 #define COURSE_MARGIN_M         0.020f  // コースの端から、さらに残しておく余裕（クランク・レーンチェンジの経路の計算に使う）
                                         //   0 で理論上の限界。サーボの速さ・センサの位置・速さの推定の誤差の分を残す
                                         //   （模擬では 0.010 だと、サーボが 2/3 の速さのときやセンサが 2cm ずれたときにクランクでコースアウトした）
+#define CENTER_LINE_WIDTH_M     0.020f  // 中央線の幅（USE_NEW_CRANK_QUICK で使う。センサは曲がり角の線の中心より、この半分 ＋ LINE_SEEN_EXTRA_M の半分だけ手前で線を見つける）
 #define TRACE_MIN_RADIUS_M      0.450f  // カーブの最小半径（規則 450mm 以上。USE_NEW_STEER で使う）
 #define CROSS_LINE_WIDTH_M      0.020f  // クロスラインの進行方向の幅（規則 20〜40mm。★大会のコースで測る）
 #define HALF_LINE_WIDTH_M       0.040f  // ハーフラインの進行方向の幅（同上）
@@ -262,6 +264,11 @@ const int COURSE_START_ROWS[] = {
 #define CRANK_BRAKE_POWER       (-60)   // ブレーキのときのモータ出力（マイナスは逆転）
 #define CRANK_BRAKE_MARGIN_M    0.05f   // 計算の誤差に備えて、早めにブレーキをかける距離 [m]（距離の推定の誤差 ±5% × 1m 分）
 #define CRANK_ARC_EXIT_RATIO    0.70f   // 円弧をこの割合まで進んだら、新しい線が見えた時点で通常走行へ移る
+// USE_NEW_CRANK_QUICK：小さい半径で曲がる。半径が小さいほど、曲がり始める位置がずれても大丈夫な幅が広い
+//   （センサが後輪から遠くにあるので、早く曲がると内側の角を切り、遅く曲がると外へ出る。その間の幅）。
+//   半径が大きいほど速く曲がれるが、この幅が狭くなる。この幅が CRANK_QUICK_WINDOW_M 以上ある一番大きい半径で、
+//   幅の真ん中から曲がり始める（後輪の軸からの位置。COURSE_MARGIN_M の余裕はこの幅とは別に両側にある）
+#define CRANK_QUICK_WINDOW_M    0.030f  // 大きくすると曲がり始めの位置のずれに強くなるが遅くなる（車の値が config.h どおりなら 0.035 ほどが上限）
 
 //========================================
 // レーンチェンジ（USE_NEW_LANE_BRAKE / USE_NEW_LANE_STEER）

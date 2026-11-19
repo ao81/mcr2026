@@ -170,7 +170,12 @@ bool crank_start_arc(bool right) {
     if (!model_ok) return false;                   // 速さの推定が当てにならないときは元の方法で曲がる
     float r, wait;
     float v = speed_mps;
+#if USE_NEW_CRANK_QUICK
+    // 曲がり始めるまでの直進の間に、曲がる速さにする（速ければ減速、遅ければ加速）。サーボが効くまでに進む距離は、その速さで計算する
+    if (crank_q_r > 0.0f) v = corner_speed(1.0f / crank_q_r);
+#endif
     if (!crank_plan(v, &r, &wait)) return false;
+    v = speed_mps;
     float v_turn = corner_speed(1.0f / r);
     float v_chk = v;
 #if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
@@ -184,6 +189,9 @@ bool crank_start_arc(bool right) {
     plan_speed_mps = v_turn;
     plan_angle = angle_for_radius(r);
     reset_distance();                              // ここから距離を数える
+    crank_yaw = 0.0f;
+    crank_unwind = 0;
+    crank_measuring = 1;
     led_out(right ? 0x2 : 0x1);
     cnt1 = 0;
     pattern = right ? PT_CRANK_R_ARC : PT_CRANK_L_ARC;
@@ -200,6 +208,28 @@ bool crank_start_arc(bool right) {
 void run_crank_arc(bool right) {
     unsigned char c = sensor_inp(MASK4_4);
     const int dir = right ? 1 : -1;
+#if USE_NEW_CRANK_QUICK
+    // 曲がり角の線（曲がる側へ延びる中央線）を通り過ぎる時間で、速さを測り直す。
+    // クロスラインは速いときに通るので 1ms の数え方で ±10% ほどずれるが、ここは減速した後なので、ずれは数%で済む。
+    // 曲がり始める位置は、ここで測った速さから決め直す
+    if (crank_measuring) {
+        unsigned char side = right ? 0x07 : 0xe0;   // 曲がる側のセンサ3つ
+        if ((c & side) == 0) {
+            crank_measuring = 0;
+            float wl = CENTER_LINE_WIDTH_M + LINE_SEEN_EXTRA_M;
+            float vm = wl / ((cnt1 + LINE_PASS_OFFSET_MS) * 0.001f);
+            // 減速の後は推定が大きくずれていることがあるので、クロスラインのとき（0.6〜1.67倍）より広く受け付ける。
+            // それより大きく違うときは測り間違いとみて使わない
+            if (vm > speed_mps * 0.4f && vm < speed_mps * 2.5f) {
+                speed_mps = vm;
+                dist_m = wl;
+                float r, wait;
+                float vq = corner_speed(1.0f / crank_q_r);
+                if (crank_plan(vq, &r, &wait)) plan_wait_m = wait;
+            }
+        }
+    }
+#endif
     float s = dist_m - plan_wait_m;                // 円弧に入ってからの距離
 
     if (s < 0.0f) {                                // ① まだ曲がり始めない
@@ -212,6 +242,32 @@ void run_crank_arc(bool right) {
         pattern = right ? PT_CRANK_R_OUTSIDE : PT_CRANK_L_OUTSIDE;
         return;
     }
+#if USE_NEW_CRANK_QUICK
+    // 車の向きが変わった角度を、サーボの本当の角度の推定から積み上げる
+    crank_yaw = crank_yaw + speed_mps * 0.001f * fabsf(curvature_of_angle(servo_est_deg));
+    // 今ハンドルを戻し始めても、戻りきるまでに向きはさらに変わる。その分を足して 90°になったら戻し始める
+    // （90°を過ぎてから戻すと、行き過ぎた向きを直すのに時間がかかる）
+    if (!crank_unwind && crank_yaw + crank_unwind_yaw(speed_mps, servo_est_deg) >= PI_F * 0.5f) crank_unwind = 1;
+    if (!crank_unwind) {
+        ha_deg(dir * plan_angle);                  // ② 円弧
+        drive_at(plan_speed_mps, dir * plan_angle);
+        return;
+    }
+    // ③ ハンドルを戻す。戻るにつれて曲がる力が要らなくなるので、その分だけ加速する
+    ha(0);
+    drive_at(corner_speed(fabsf(curvature_of_angle(servo_est_deg))), servo_est_deg);
+    if (find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
+        led_out(0x0);
+        cnt1 = 0;
+        pattern = PT_TRACE;                        // 線が見えた → 通常走行
+        return;
+    }
+    if (crank_yaw > PI_F * 0.75f) {                // 向きが変わりすぎても線が見えない → 元の復帰処理
+        cnt1 = 0;
+        pattern = right ? PT_CRANK_R_RETURN : PT_CRANK_L_RETURN;
+    }
+    return;
+#endif
     if (s >= plan_len_m * CRANK_ARC_EXIT_RATIO) {
         bool found = right ? (c == 0x0e || c == 0x0c || c == 0x1c || c == 0x18)
                            : (c == 0x70 || c == 0x30 || c == 0x38 || c == 0x18);

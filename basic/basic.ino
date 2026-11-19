@@ -40,6 +40,7 @@ static_assert(!(USE_NEW_CRANK_BRAKE && !USE_NEW_CRANK_TURN) || (CRANK_ENTRY_MPS 
 //   線の形の推定は USE_NEW_STEER のハンドル角度を、先読みは USE_NEW_TRACE_SPEED の速さを変えるもの。単独では働かない
 static_assert(!(USE_NEW_LINE_SHAPE && !USE_NEW_STEER), "USE_NEW_LINE_SHAPE は USE_NEW_STEER と一緒に 1 にしてください");
 static_assert(!(USE_NEW_CURVE_PREVIEW && !USE_NEW_TRACE_SPEED), "USE_NEW_CURVE_PREVIEW は USE_NEW_TRACE_SPEED と一緒に 1 にしてください");
+static_assert(!USE_NEW_CRANK_QUICK || (USE_NEW_CRANK_TURN && USE_NEW_CRANK_BRAKE), "USE_NEW_CRANK_QUICK は USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に 1 にしてください");
 
 static_assert(!USE_NEW_LANE_DISTANCE || USE_NEW_LANE_STEER, "USE_NEW_LANE_DISTANCE には USE_NEW_LANE_STEER が必要です");
 static_assert(!USE_NEW_LANE_DOWN_ONLY || USE_NEW_LANE_DISTANCE, "USE_NEW_LANE_DOWN_ONLY には USE_NEW_LANE_DISTANCE が必要です");
@@ -201,6 +202,8 @@ float crank_r_in(float d);
 float crank_room(float d);
 int crank_plan_delay(float v, float delay, float* r_out, float* wait_out);
 int crank_plan(float v, float* r_out, float* wait_out);
+void crank_quick_setup(void);
+float crank_unwind_yaw(float v, float angle);
 float scurve_x(float r, float len, float f, float d);
 float scurve_sin(float r, float len, float f);
 float lane_r_for(float len, float d);
@@ -306,6 +309,12 @@ volatile unsigned long line_obs_ms;    // 最後に推定した時の cnt0（1ms
 float pursuit_ld;                      // ピュアパシュートで線を見る距離 [m]（plan_setup で計算しておく）
 float obs_k_lim = 10.0f;               // 線の曲がり具合の推定の上限 [1/m]（plan_setup で計算しておく）
 float trace_v_cap;                     // 直線の速さの上限 [m/s]（TRACE_SAFE_RADIUS_M。0 なら上限なし）
+float crank_q_r;                       // USE_NEW_CRANK_QUICK：曲がる半径 [m]（plan_setup で決める。0 なら曲がれる半径がない）
+float crank_q_d;                       // USE_NEW_CRANK_QUICK：曲がり始める所の、後輪の軸から新しい道の手前の端までの距離 [m]
+float crank_q_dlo;                     // USE_NEW_CRANK_QUICK：その距離の下限（これより奥まで進んでから曲がると外へ出る）
+volatile float crank_yaw;              // USE_NEW_CRANK_QUICK：曲がり始めてから車の向きが変わった角度の推定 [rad]
+volatile int crank_measuring;           // USE_NEW_CRANK_QUICK：1 なら曲がり角の線の通過時間を測っている
+volatile int crank_unwind;             // USE_NEW_CRANK_QUICK：1 ならハンドルを戻し始めた
 float crank_extra_m;                   // クランクの線を見つけてから円弧に入るまでに進む距離 [m]（USE_NEW_BRAKE_RANGE）
 float lane_extra_m;                    // 中央線の切れ目を見つけてからS字に入るまでに進む距離 [m]（同上）
 // これから来るクランク・レーンチェンジの寸法（speed_model.ino の crank_spot_select / lane_spot_select で決める）

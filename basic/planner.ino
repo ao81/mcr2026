@@ -68,9 +68,68 @@ float crank_room(float d) {                       // プラスなら、その位
     return rf - crank_r_in(d);
 }
 
+//**********************************************************************
+// USE_NEW_CRANK_QUICK：小さい半径で素早く曲がるときの、半径と曲がり始める位置（setup で1回だけ計算する）
+//   半径 R で曲がるとき、曲がり始める所 D（後輪の軸から新しい道の手前の端まで）は次の範囲でないといけない
+//     D ≦ D_hi(R)：② 内側の角を切らない      (R − A)² + (D + m)² ≦ (R − hw)²  → D_hi = √(2R(A − hw) − A² + hw²) − m
+//     D ≧ D_lo(R)：① 外側の前の角が出ない    √((R + hw)² + Lf²) ≦ D + w − m    → D_lo = √((R + hw)² + Lf²) − w + m
+//   この幅 D_hi − D_lo は、ハンドルを最大に切った半径の近くで一番広く、半径が大きくなると狭くなる。
+//   幅が CRANK_QUICK_WINDOW_M 以上ある一番大きい半径を選び、幅の真ん中から曲がり始める
+//   （どの半径でも足りないときは、幅が一番広い半径にする。幅がまったくなければ crank_q_r = 0 で、元の方法で曲がる）
+//   半径と位置は速さによらないので、ここで1回だけ計算しておく。速さで変わるのは、線を見つけてから直進する距離だけ
+//**********************************************************************
+void crank_quick_setup(void) {
+    const float a = COURSE_WIDTH_M * 0.5f - COURSE_MARGIN_M;
+    const float hw = CAR_HALF_WIDTH_M;
+    const float m = COURSE_MARGIN_M;
+    const float r_min = radius_of_angle(SERVO_MAX_ANGLE);
+    float best_r = 0.0f, best_w = 0.0f, best_lo = 0.0f, best_hi = 0.0f;   // 幅が一番広い半径
+    float pick_r = 0.0f, pick_lo = 0.0f, pick_hi = 0.0f;                  // 幅が足りる一番大きい半径
+    crank_q_r = 0.0f;
+    if (a <= hw) return;
+    for (int i = 0; i < 100; i++) {
+        float r = r_min + 0.002f * i;
+        float q = 2.0f * r * (a - hw) - a * a + hw * hw;
+        if (q <= 0.0f) continue;
+        float hi = sqrtf(q) - m;
+        float lo = sqrtf((r + hw) * (r + hw) + CAR_FRONT_M * CAR_FRONT_M) - COURSE_WIDTH_M + m;
+        float w = hi - lo;
+        if (w > best_w) { best_w = w; best_r = r; best_lo = lo; best_hi = hi; }
+        if (w >= CRANK_QUICK_WINDOW_M) { pick_r = r; pick_lo = lo; pick_hi = hi; }
+    }
+    if (pick_r <= 0.0f) { pick_r = best_r; pick_lo = best_lo; pick_hi = best_hi; }
+    if (pick_r <= 0.0f) return;                   // 曲がれる半径がない
+    crank_q_r = pick_r;
+    crank_q_d = (pick_lo + pick_hi) * 0.5f;
+    crank_q_dlo = pick_lo;
+}
+
+// ハンドルを angle 度から 0度へ戻す間に、車の向きがさらに変わる角度 [rad]（速さ v）
+//   指令してから SERVO_DEAD_S は angle のまま、その後 SERVO_SPEED_DPS で 0 へ戻るとして
+//     v × ( SERVO_DEAD_S × tan(angle) ÷ L  ＋  ∫ tan θ dθ ÷ (L × サーボの速さ[rad/s]) )、∫ tan θ dθ = −ln(cos angle)
+float crank_unwind_yaw(float v, float angle) {
+    float th = fabsf(angle) * DEG_TO_RAD_F;
+    float c = cosf(th);
+    if (c < 0.05f) c = 0.05f;
+    return v * (SERVO_DEAD_S * tanf(th) + (-logf(c)) / (SERVO_SPEED_DPS * DEG_TO_RAD_F)) / WHEELBASE_M;
+}
+
 int crank_plan_delay(float v, float delay, float* r_out, float* wait_out) {
     if (COURSE_WIDTH_M * 0.5f - COURSE_MARGIN_M <= CAR_HALF_WIDTH_M) return 0;
     const float d_avail = SENSOR_TO_REAR_AXLE_M - COURSE_WIDTH_M * 0.5f - v * delay;
+#if USE_NEW_CRANK_QUICK
+    if (crank_q_r <= 0.0f) return 0;
+    // センサは曲がり角の線の中心ではなく、線の手前の端で線を見つける。その分だけ後輪の軸は手前にいる
+    const float d_seen = d_avail + CENTER_LINE_WIDTH_M * 0.5f + LINE_SEEN_EXTRA_M * 0.5f;
+    float dq = crank_q_d;
+    if (d_seen < dq) {                             // 速くて、真ん中の位置はもう過ぎた
+        if (d_seen < crank_q_dlo) return 0;        // 範囲の外 → 曲がれないので元の方法で曲がる
+        dq = d_seen;                               // 範囲の中なら、すぐ曲がる
+    }
+    *r_out = crank_q_r;
+    *wait_out = d_seen - dq;
+    return 1;
+#endif
     float d = d_avail;
     if (crank_room(d) < 0.0f) {
         // 少しずつ手前（D を小さく = 待つ距離を長く）にして、曲がれる所を探す
@@ -282,6 +341,9 @@ void plan_setup(void) {
     model_ok = model_check_config();
     model_bad_cnt = 0;
     course_list_setup();
+#if USE_NEW_CRANK_QUICK
+    crank_quick_setup();
+#endif
     crank_entry_mps = (CRANK_ENTRY_MPS > 0.0f) ? CRANK_ENTRY_MPS : crank_turn_speed_auto();
     lane_entry_mps  = (LANE_ENTRY_MPS  > 0.0f) ? LANE_ENTRY_MPS  : lane_turn_speed_auto();
     pursuit_ld = pursuit_lookahead_m();
