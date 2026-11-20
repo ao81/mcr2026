@@ -286,6 +286,9 @@ volatile int f_setup_end;              // setup が終わったら 1
 volatile float speed_mps;              // 推定した車の速さ [m/s]（speed_model.ino）
 volatile float v_max_mps;              // 出力100%のときの速さ [m/s]。初めは V_MAX_MPS、USE_NEW_VMAX_LEARN で走りながら直す
 float vmax_var;                        // v_max_mps の当てにならなさ（相対誤差の2乗。USE_NEW_VMAX_LEARN）
+float vmax_base;                       // v_max_mps を直してよい範囲の中心。初めは V_MAX_MPS、出力一定のまま測れたらその値（USE_NEW_VMAX_LEARN）
+float steady_power;                    // 同じ出力を出し続けているときの、その出力（speed_model.ino）
+volatile unsigned long steady_ms;      // 同じ出力を出し続けている時間 [ms]（speed_model.ino）
 volatile float dist_m;                 // ラインの終わりからの走行距離 [m]（speed_model.ino）
 volatile int brake_started;            // 1: 計算による減速でブレーキを始めた（speed_model.ino）
 float crank_entry_mps;                 // クランクに入る速さ [m/s]（planner.ino の plan_setup で決める）
@@ -397,6 +400,9 @@ void setup() {
     line_pass_ms = 0;
     v_max_mps = V_MAX_MPS;  // 出力100%のときの速さ（speed_model.ino）
     vmax_var = VMAX_LEARN_SD * VMAX_LEARN_SD;
+    vmax_base = V_MAX_MPS;
+    steady_power = 0.0f;
+    steady_ms = 0;
 
     // AGT 1msごとの割り込み  PCLKB=24MHz, 1分周 → 24000カウントで1ms（設定値は1小さい23999）
     fsp_timer.begin(TIMER_MODE_PERIODIC, AGT_TIMER, 1, 23999, 1, (timer_source_div_t)TIMER_SOURCE_DIV_1, AGTCallback);

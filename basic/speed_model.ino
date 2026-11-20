@@ -55,6 +55,14 @@ void speed_model_update(void) {
     const float dt = 0.001f;
     servo_model_update();
     float power = (log_raw.ml + log_raw.mr) * 0.5f;          // DIPスイッチで縮小した後の出力
+    // 同じ出力をどれだけ続けているか（USE_NEW_VMAX_LEARN で、ラインで測った速さから v_max_mps を直接求めるのに使う）。
+    // 直線でもハンドルの左右に合わせて内輪の出力が少し変わるので、VMAX_STEADY_TOL 以内の変化は同じ出力とみる
+    if (fabsf(power - steady_power) <= VMAX_STEADY_TOL) {
+        if (steady_ms < 100000UL) steady_ms++;
+    } else {
+        steady_power = power;
+        steady_ms = 0;
+    }
     float target = power / 100.0f * v_max_mps;
     float v = speed_mps;
     float a = (target - v) / MOTOR_TAU_S;
@@ -94,6 +102,27 @@ void speed_measure_by_line(float width_m, int pass_ms) {
     float t = (pass_ms + LINE_PASS_OFFSET_MS) * 0.001f;
     if (t <= 0.0f) return;
     float v_meas = width_m / t;
+#if USE_NEW_VMAX_LEARN
+    // 同じ出力を VMAX_STEADY_MS 以上出し続けた後なら（スタートから全開で最初のラインまで など）、
+    // 推定の速さも本当の速さも、同じ時定数で「出力 × 出力100%の速さ」に近づいているので、
+    // 「測った速さ ÷ 推定の速さ」がそのまま「本当の v_max ÷ 設定の v_max」になる。
+    // そこで V_MAX_MPS が大きくずれていても（3.0 と 1.8 など）、ここで1回で直す（±VMAX_LEARN_RANGE の制限は使わない）。
+    // 直した値を、以後の小さな直し（下のカルマンフィルタ）の範囲の中心にする
+    if (steady_ms >= VMAX_STEADY_MS && steady_power >= 30.0f && speed_mps > 0.3f) {
+        float vm = v_max_mps * (v_meas / speed_mps);
+        float lo = V_MAX_MPS * VMAX_STEADY_MIN_RATIO;
+        float hi = V_MAX_MPS * VMAX_STEADY_MAX_RATIO;
+        if (vm >= lo && vm <= hi) {
+            float rq = 0.41f / (pass_ms + LINE_PASS_OFFSET_MS);
+            v_max_mps = vm;
+            vmax_base = vm;
+            vmax_var = rq * rq + LINE_WIDTH_SD * LINE_WIDTH_SD;   // 残る誤差は測定の誤差だけ
+            speed_mps = v_meas;
+            model_bad_cnt = 0;
+            return;
+        }
+    }
+#endif
     // 測った速さが推定と大きく違う（0.6倍より小さい、1.67倍より大きい）ときは、斜めに横切った・線を見落とした などの
     // 測り間違いか、config.h の車の値が実際と大きく違うかのどちらか。どちらか分からないので、速い方の値を使う
     // （速めに見ておけば、ブレーキが遅れることはない）。2回続けて大きく違ったら、推定は当てにならないとして
@@ -147,8 +176,8 @@ void speed_measure_by_line(float width_m, int pass_ms) {
         }
         vmax_var = (1.0f - k) * vmax_var;
         float vm = v_max_mps * f;
-        float lo = V_MAX_MPS * (1.0f - VMAX_LEARN_RANGE);
-        float hi = V_MAX_MPS * (1.0f + VMAX_LEARN_RANGE);
+        float lo = vmax_base * (1.0f - VMAX_LEARN_RANGE);
+        float hi = vmax_base * (1.0f + VMAX_LEARN_RANGE);
         v_max_mps = vm < lo ? lo : (vm > hi ? hi : vm);
 #endif
     }
@@ -168,8 +197,8 @@ void correct_lane_speed_by_distance(void) {
 
     speed_mps *= ratio;
 #if USE_NEW_VMAX_LEARN
-    v_max_mps = fminf(V_MAX_MPS * (1.0f + VMAX_LEARN_RANGE),
-                      fmaxf(V_MAX_MPS * (1.0f - VMAX_LEARN_RANGE), v_max_mps * ratio));
+    v_max_mps = fminf(vmax_base * (1.0f + VMAX_LEARN_RANGE),
+                      fmaxf(vmax_base * (1.0f - VMAX_LEARN_RANGE), v_max_mps * ratio));
 #endif
 }
 

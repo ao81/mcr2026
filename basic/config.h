@@ -120,15 +120,15 @@ const int LANE_RAMP[LANE_STEPS] = {
 #define USE_NEW_TRACE_SPEED     0   // 通常走行(20〜25)の速さを、ハンドル角度から決まる「曲がれる上限の速さ」にする
 #define USE_NEW_CURVE_SPEED     0   // 大曲がり(30〜45)の速さも、同じ方法で決める
 #define USE_NEW_STEER           0   // 通常走行(20〜25)のハンドル角度を、線の位置から計算する（ピュアパシュート）
-#define USE_NEW_CRANK_BRAKE     0   // クランク手前の減速を、速さと残りの距離から計算する（USE_NEW_CRANK_TURN が 0 なら CRANK_ENTRY_MPS も入れる）
-#define USE_NEW_CRANK_TURN      0   // クランクを、コースからはみ出さない最大の半径の円弧で曲がる
+#define USE_NEW_CRANK_BRAKE     1   // クランク手前の減速を、速さと残りの距離から計算する（USE_NEW_CRANK_TURN が 0 なら CRANK_ENTRY_MPS も入れる）
+#define USE_NEW_CRANK_TURN      1   // クランクを、コースからはみ出さない最大の半径の円弧で曲がる
 #define USE_NEW_LANE_BRAKE      0   // レーンチェンジ手前の減速を、速さと残りの距離から計算する（USE_NEW_LANE_STEER と一緒に使う）
 #define USE_NEW_LANE_STEER      0   // レーンチェンジを、同じ半径の円弧2つをつないだ最も緩い経路で行う
-#define USE_NEW_VMAX_LEARN      0   // ラインの通過で測った速さから、出力100%のときの速さ（電池の電圧で変わる）を走りながら直す（ラインの幅を合わせてから使う）
+#define USE_NEW_VMAX_LEARN      1   // ラインの通過で測った速さから、出力100%のときの速さ（電池の電圧で変わる）を走りながら直す（ラインの幅を合わせてから使う）
 #define USE_NEW_LINE_SHAPE      0   // センサと自分のハンドル角度から線の位置・向き・曲がり具合を推定し、サーボの遅れの分だけ先の状態でハンドルを切る（USE_NEW_STEER と一緒に使う）
 #define USE_NEW_CURVE_PREVIEW   0   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
-#define USE_NEW_CRANK_QUICK     0   // クランクを、手前で少しだけ減速し、ハンドルを大きく切って短い時間で90°曲がり、曲がり終わる前にハンドルを戻し始める（USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に使う）
-#define USE_NEW_BRAKE_RANGE     0   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
+#define USE_NEW_CRANK_QUICK     1   // クランクを、手前で少しだけ減速し、ハンドルを大きく切って短い時間で90°曲がり、曲がり終わる前にハンドルを戻し始める（USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に使う）
+#define USE_NEW_BRAKE_RANGE     1   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
 
 #define USE_NEW_LANE_WIDTH_INTERVAL  0   // ハーフライン通過時、1msの測定誤差で説明できる速度のずれを除いて補正する
 #define USE_NEW_LANE_DISTANCE        0   // S字進入前、標識から中央線の切れ目までの距離で推定速度を補正する（USE_NEW_LANE_STEER と併用）
@@ -240,7 +240,7 @@ const int COURSE_START_ROWS[] = {
 //     （ただし加速は GRIP_LONG_MPS2、減速は GRIP_LONG_MPS2 × PLAN_GRIP_RATIO_LONG を超えない。どちらも推定が速めになる側）
 //   ライン（幅が分かっている）を通過したときは、その通過時間で v を測り直す
 //========================================
-#define V_MAX_MPS               3.0f    // 出力100%で走り続けたときの速さ [m/s]（★実測する）
+#define V_MAX_MPS               1.8f    // 出力100%で走り続けたときの速さ [m/s]（★実測する。LOG0008 のライン通過時間から約 1.7〜1.8。USE_NEW_VMAX_LEARN が 1 なら最初のラインで直る）
 #define MOTOR_TAU_S             0.15f   // 速さが変化するときの時定数 [s]（★実測する）
 #define LINE_PASS_OFFSET_MS     1       // 測った通過時間に足す分 [ms]。センサは1msごとに見るので、
                                         //   始まり：ラインに乗ってから見つけるまで平均 0.5ms ＋ 見つけた次の割り込みから数え始めるので 1ms → 1.5ms 足りない
@@ -257,6 +257,13 @@ const int COURSE_START_ROWS[] = {
 #define LINE_WIDTH_SD           0.03f   // センサで見たラインの幅の誤差の大きさ（CROSS/HALF_LINE_WIDTH_M の 3%）
 #define VMAX_LEARN_MIN_GAIN     0.30f   // K をこれより小さくしない（走っている間に電池の電圧が下がっていくのにも合わせる）
 #define VMAX_LEARN_RANGE        0.25f   // V_MAX_MPS の ±25% の範囲でだけ直す（測り間違いで大きく外れないように）
+// 同じ出力を長く出し続けた後のラインでは、上の少しずつ直す方法ではなく、測った速さから v_max を1回で求める
+//   （V_MAX_MPS が 3.0 で本当は 1.8 のように大きくずれていても、最初のクロスライン・ハーフラインで直る。
+//    求めた値を、それ以後の ±VMAX_LEARN_RANGE の中心にする）
+#define VMAX_STEADY_MS          600     // この時間 [ms] 以上同じ出力のときだけ使う（MOTOR_TAU_S の4倍ほど。★時定数を測ったら合わせる）
+#define VMAX_STEADY_TOL         3.0f    // 出力の変化がこれ [%] 以内なら同じ出力とみる（直線でハンドルの左右に合わせて内輪が少し変わる分）
+#define VMAX_STEADY_MIN_RATIO   0.40f   // 求めた値が V_MAX_MPS のこの倍から
+#define VMAX_STEADY_MAX_RATIO   2.00f   //   この倍の間のときだけ使う（それ以外は測り間違いとみる）
 
 //========================================
 // クランク（USE_NEW_CRANK_BRAKE / USE_NEW_CRANK_TURN）
