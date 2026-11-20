@@ -271,7 +271,10 @@ const int COURSE_START_ROWS[] = {
 #define CRANK_ENTRY_MPS         0.0f    // クランクに入る速さ [m/s]。0 なら円弧の半径とグリップから自動で計算する（USE_NEW_CRANK_TURN が 1 のとき）
                                         //   USE_NEW_CRANK_TURN が 0 のときは、元の曲がり方でうまく曲がれる速さを入れる（模擬では 1.4 前後）
 #define CRANK_BRAKE_POWER       (-60)   // ブレーキのときのモータ出力（マイナスは逆転）
+#define SPEED_HOLD_BAND_MPS     0.05f   // 減速して目標の速さからこれ [m/s] 以内になったら、ブレーキをやめて目標の速さに保つ（クランク・レーンチェンジ手前）
+#define SPEED_HOLD_S            0.020f  // 目標の速さに保つとき、ずれを直す速さ [s]（短いほど強く直すが、出力が振れやすい）
 #define CRANK_BRAKE_MARGIN_M    0.05f   // 計算の誤差に備えて、早めにブレーキをかける距離 [m]（距離の推定の誤差 ±5% × 1m 分）
+#define CRANK_EXIT_LINE_IGNORE_MS 200   // 計算した円弧でクランクを曲がり終えてから、この時間 [ms] はクロスライン・ハーフラインを探さない（斜めに見えた中央線を見間違えないように）
 #define CRANK_ARC_EXIT_RATIO    0.70f   // 円弧をこの割合まで進んだら、新しい線が見えた時点で通常走行へ移る
 // USE_NEW_CRANK_QUICK：小さい半径で曲がる。半径が小さいほど、曲がり始める位置がずれても大丈夫な幅が広い
 //   （センサが後輪から遠くにあるので、早く曲がると内側の角を切り、遅く曲がると外へ出る。その間の幅）。

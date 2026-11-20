@@ -301,6 +301,8 @@ volatile float plan_angle;             // 計算した経路：ハンドル角�
 volatile float trace_k_filt;           // 通常走行の速さを決める曲率をならした値 [1/m]（speed_model.ino）
 volatile float lane_offset_m;          // 中央線が切れる直前の、線に対する車の横の位置 [m]（右がプラス）
 volatile int model_ok;                 // 1: 速度の推定を使ってよい。config.h の値がおかしいときや、ラインで測った速さと推定が大きく違い続けたときは 0 にして、元の表の動きに戻す
+int line_w_exact;                      // 1: これから通るライン（crank_line_w_m / lane_line_w_m）の幅が1つに決まっている（スタート位置が決まらず、一番広い幅で代えているときは 0）
+volatile unsigned long line_ignore_until;  // cnt0 がこの値になるまで、通常走行でクロスライン・ハーフラインを探さない（クランクを曲がり終えた直後）
 volatile int model_bad_cnt;            // ラインで測った速さと推定が大きく違った回数（続けて）
 volatile float steer_cmd_deg;          // 最後に出したハンドル角度の指令 [度]（小数。ha / ha_deg で記録）
 volatile float servo_est_deg;          // サーボの本当の角度の推定 [度]（speed_model.ino の servo_model_update）

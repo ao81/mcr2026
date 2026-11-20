@@ -259,6 +259,7 @@ void run_crank_arc(bool right) {
     if (find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
         led_out(0x0);
         cnt1 = 0;
+        line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;
         pattern = PT_TRACE;                        // 線が見えた → 通常走行
         return;
     }
@@ -274,6 +275,7 @@ void run_crank_arc(bool right) {
         if (found) {
             led_out(0x0);
             cnt1 = 0;
+            line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;
             pattern = PT_TRACE;
             return;
         }
@@ -289,6 +291,7 @@ void run_crank_arc(bool right) {
     if (find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
         led_out(0x0);
         cnt1 = 0;
+        line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;
         pattern = PT_TRACE;                        // 線が見えた → 通常走行
         return;
     }

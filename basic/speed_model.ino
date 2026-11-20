@@ -108,7 +108,8 @@ void speed_measure_by_line(float width_m, int pass_ms) {
     // 「測った速さ ÷ 推定の速さ」がそのまま「本当の v_max ÷ 設定の v_max」になる。
     // そこで V_MAX_MPS が大きくずれていても（3.0 と 1.8 など）、ここで1回で直す（±VMAX_LEARN_RANGE の制限は使わない）。
     // 直した値を、以後の小さな直し（下のカルマンフィルタ）の範囲の中心にする
-    if (steady_ms >= VMAX_STEADY_MS && steady_power >= 30.0f && speed_mps > 0.3f) {
+    // 線の幅が1つに決まらない（スタート位置が分からず一番広い幅で代えている）ときは、測った速さが速めに出るので使わない
+    if (line_w_exact && steady_ms >= VMAX_STEADY_MS && steady_power >= 30.0f && speed_mps > 0.3f) {
         float vm = v_max_mps * (v_meas / speed_mps);
         float lo = V_MAX_MPS * VMAX_STEADY_MIN_RATIO;
         float hi = V_MAX_MPS * VMAX_STEADY_MAX_RATIO;
@@ -167,18 +168,22 @@ void speed_measure_by_line(float width_m, int pass_ms) {
         float f = 1.0f + k * (ratio - 1.0f);
         v_new = speed_mps * f;
 #if USE_NEW_VMAX_LEARN
-        // 推定していた速さが測った速さより速いなら、出力100%の速さを実際より大きく見ていたことになる。
-        // 速さと同じ割合で v_max_mps も直し、その誤差 P を (1 − K) 倍に縮める（次からは測定を信じる割合が下がる）
-        if (k < VMAX_LEARN_MIN_GAIN) {
-            k = VMAX_LEARN_MIN_GAIN;
-            f = 1.0f + k * (ratio - 1.0f);
-            v_new = speed_mps * f;
+        // 線の幅が1つに決まらないとき（一番広い幅で代えている）は、測った速さが速めに出るので、v_max は直さない
+        // （直すと、その後ずっと出力を少なめに出して、思ったより遅く走り、曲がり始めの位置もずれる。模擬の crank2 で確認）
+        if (line_w_exact) {
+            // 推定していた速さが測った速さより速いなら、出力100%の速さを実際より大きく見ていたことになる。
+            // 速さと同じ割合で v_max_mps も直し、その誤差 P を (1 − K) 倍に縮める（次からは測定を信じる割合が下がる）
+            if (k < VMAX_LEARN_MIN_GAIN) {
+                k = VMAX_LEARN_MIN_GAIN;
+                f = 1.0f + k * (ratio - 1.0f);
+                v_new = speed_mps * f;
+            }
+            vmax_var = (1.0f - k) * vmax_var;
+            float vm = v_max_mps * f;
+            float lo = vmax_base * (1.0f - VMAX_LEARN_RANGE);
+            float hi = vmax_base * (1.0f + VMAX_LEARN_RANGE);
+            v_max_mps = vm < lo ? lo : (vm > hi ? hi : vm);
         }
-        vmax_var = (1.0f - k) * vmax_var;
-        float vm = v_max_mps * f;
-        float lo = vmax_base * (1.0f - VMAX_LEARN_RANGE);
-        float hi = vmax_base * (1.0f + VMAX_LEARN_RANGE);
-        v_max_mps = vm < lo ? lo : (vm > hi ? hi : vm);
 #endif
     }
     speed_mps = v_new;
@@ -235,6 +240,16 @@ unsigned int spot_match(unsigned int cand, char kind, char dir, float* to_m, flo
     return m;
 }
 
+// cand の位置から見て今あり得る kind の行の線の幅が、全部 w と同じなら 1
+int spot_width_same(unsigned int cand, char kind, float w) {
+    for (int i = 0; i < START_N; i++) {
+        if (!(cand & (1u << i))) continue;
+        const CourseSpot& s = COURSE_LIST[spot_row(i)];
+        if (s.kind == kind && s.line_w_m != w) return 0;
+    }
+    return 1;
+}
+
 // どの行とも合わないときの値：表の中で kind の一番短い距離と一番広い線の幅。その種類の行が無ければ 0 を返す
 int spot_fallback(char kind, float* to_m, float* w_m) {
     float to = 1.0e6f, w = 0.0f;
@@ -282,10 +297,19 @@ void course_list_setup(void) {
 // クロスラインを見つけた時（pattern 100）に呼ぶ
 void crank_spot_select(void) {
     float to, w;
-    if (COURSE_LIST_USE && spot_ok && (spot_match(spot_cand, 'C', 0, &to, &w) || spot_fallback('C', &to, &w))) {
-        crank_to_m = to;
-        crank_line_w_m = w + LINE_SEEN_EXTRA_M;
-        return;
+    line_w_exact = 1;
+    if (COURSE_LIST_USE && spot_ok) {
+        unsigned int m = spot_match(spot_cand, 'C', 0, &to, &w);
+        if (m) {
+            line_w_exact = spot_width_same(m, 'C', w);
+        } else {
+            line_w_exact = 0;
+        }
+        if (m || spot_fallback('C', &to, &w)) {
+            crank_to_m = to;
+            crank_line_w_m = w + LINE_SEEN_EXTRA_M;
+            return;
+        }
     }
     crank_to_m = CROSS_TO_CRANK_M;                 // 表を使わない、または表にクランクが無い
     crank_line_w_m = CROSS_LINE_WIDTH_M;
@@ -303,6 +327,7 @@ void crank_spot_done(bool right) {
 //   後でクロスラインだったと分かることがあるので、スタート位置を外すのは lane_spot_done で行う
 void lane_spot_select(bool right) {
     lane_to_exact = 1;
+    line_w_exact = 1;
     float to, w;
     if (COURSE_LIST_USE && spot_ok) {
         spot_pend = spot_match(spot_cand, 'H', right ? 'R' : 'L', &to, &w);
@@ -312,8 +337,10 @@ void lane_spot_select(bool right) {
                 if (!(spot_pend & (1u << i))) continue;
                 if (COURSE_LIST[spot_row(i)].to_m != to) lane_to_exact = 0;
             }
+            line_w_exact = spot_width_same(spot_pend, 'H', w);
         } else {
             lane_to_exact = 0;
+            line_w_exact = 0;
             if (!spot_fallback('H', &to, &w)) {
                 to = HALF_TO_LANE_M;               // 表にレーンチェンジが無い
                 w = HALF_LINE_WIDTH_M - LINE_SEEN_EXTRA_M;
@@ -396,7 +423,7 @@ int power_of_speed(float u) {
 //**********************************************************************
 int brake_power_for(float remain_m, float v_target, int brake_power, float margin_m) {
     float v = speed_mps;
-    if (v > v_target) {
+    if (v > v_target + SPEED_HOLD_BAND_MPS) {
         if (!brake_started) {
             // 次の1msも全開で進んだとして、その先で止まりきれるかを調べる
             float a = (v_max_mps - v) / MOTOR_TAU_S;
@@ -410,8 +437,15 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
         }
         return brake_power;                             // ブレーキ
     }
-    // 目標の速さ以下：その速さに合わせる
-    return power_of_speed(deadbeat_speed(v, v_target, 0.0f));
+    // 目標の速さの近く：その速さに保つ。
+    // 前は「1msで目標にぴったり合わせる出力」（deadbeat_speed）を出していたが、出力を整数に丸めた分だけ目標を少し超え、
+    // 超えるとブレーキ（-60）→ 戻すために +62 … を繰り返していた（LOG0019：-60 / +36 / +62 の繰り返しで、
+    // 推定は 1.065 m/s のまま、実際の出力の平均は約13% で、クランク手前を約2.3秒のろのろ走った。
+    // 推定ではブレーキの効きを GRIP_LONG_USE で頭打ちにしているので、-60 の本当の効きより弱く見ていたため）。
+    // そこで、保つのに要る出力に、ずれに比例した分だけを足す（SPEED_HOLD_S で目標に近づく。ブレーキの側に振り切れない）
+    float u = v_target + (v_target - v) * (MOTOR_TAU_S / SPEED_HOLD_S);
+    int p = power_of_speed(u);
+    return p < brake_power ? brake_power : p;
 }
 
 //**********************************************************************

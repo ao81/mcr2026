@@ -58,6 +58,9 @@ void run_trace(int stage) {
     if (cnt0 - line_obs_ms <= 20 && fabsf(obs_z2) > LINE_CHECK_MAX_ANGLE &&
         fabsf(servo_est_deg) > LINE_CHECK_MIN_STEER) check_lines = false;
 #endif
+    // クランクを計算した円弧で曲がり終えた直後は、まだ車が斜めで、新しい中央線が斜めに太く見えて
+    // ハーフラインと見間違える（LOG0019：右クランクの直後に 0x0f を右ハーフラインと判断し、車線変更してコースアウト）
+    if ((long)(line_ignore_until - cnt0) > 0) check_lines = false;
     if (check_lines) {
         if (check_crossline())    { cnt1 = 0; pattern = PT_CROSS_FOUND;  return; }
         if (check_shasenhenkoum()) { cnt1 = 0; pattern = PT_LANE_R_FOUND; return; }
