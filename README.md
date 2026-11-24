@@ -11,4 +11,5 @@
 | `basic/planner.ino` | クランク・レーンチェンジの経路の計算と、ピュアパシュート（新しい走行アルゴリズム） |
 | `docs/tuning_guide.md` | 新しい走行アルゴリズムの考え方、実機で測る値、確認と数値調整の手順 |
 | `tools/host_test/` | 元のプログラムと動きが同じかを PC で確かめる道具 |
+| `tools/param_editor/index.html` | `basic/config.h`・`debug/dbg_config.h` の数値とスイッチを、説明付きの画面で変えて保存するページ。ブラウザ（Chrome / Edge）で開き「フォルダを開く」で mcr2026 のフォルダを選ぶと、保存した時にファイルを直接書き換える（`debug/config.h` にも同じ内容をコピー） |
 | `tools/course_sim/` | コースと車を計算で模擬し、新しい走行アルゴリズムを PC で走らせる道具。`simulator.html` をブラウザで開くと、コース・スイッチ・値を画面で選んで走らせ、動きをアニメーションで見られる |

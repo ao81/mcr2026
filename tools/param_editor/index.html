@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>パラメータ編集</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --sub: #5d6676; --line: #dde1e8;
+  --accent: #2563eb; --accent-bg: #e8effe; --chg: #b45309; --chg-bg: #fff4e0;
+  --err: #c62828; --err-bg: #fdeaea; --ok: #15803d; --ok-bg: #e6f6ec;
+  --input: #ffffff; --mono: ui-monospace, "Cascadia Mono", Consolas, "BIZ UDGothic", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --sub: #9aa3b2; --line: #2e343e;
+    --accent: #7aa2ff; --accent-bg: #1f2a44; --chg: #f0b45a; --chg-bg: #3a2c14;
+    --err: #ff7b7b; --err-bg: #3c1d1d; --ok: #6fd391; --ok-bg: #173323; --input: #12151a;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --sub: #9aa3b2; --line: #2e343e;
+  --accent: #7aa2ff; --accent-bg: #1f2a44; --chg: #f0b45a; --chg-bg: #3a2c14;
+  --err: #ff7b7b; --err-bg: #3c1d1d; --ok: #6fd391; --ok-bg: #173323; --input: #12151a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+header { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; }
+.bar h1 { font-size: 16px; margin: 0 8px 0 0; }
+button, select, .btn { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:disabled { opacity: .45; cursor: default; }
+button.small { padding: 1px 8px; font-size: 12px; }
+input[type=text], input[type=search] { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--input); color: var(--text); }
+.src { font-size: 12px; color: var(--sub); }
+.grow { flex: 1; }
+.tabs { display: flex; gap: 4px; padding: 0 16px; }
+.tab { border: 1px solid var(--line); border-bottom: none; border-radius: 6px 6px 0 0; padding: 4px 12px; cursor: pointer;
+  background: var(--bg); color: var(--sub); }
+.tab.on { background: var(--accent-bg); color: var(--text); font-weight: 600; }
+.layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+nav { position: sticky; top: 110px; align-self: start; max-height: calc(100vh - 130px); overflow: auto; font-size: 13px; }
+nav a { display: block; padding: 3px 8px; border-radius: 4px; color: var(--sub); text-decoration: none; }
+nav a:hover { background: var(--accent-bg); color: var(--text); }
+nav a .n { float: right; color: var(--chg); font-weight: 600; }
+.group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.group > h2 { font-size: 15px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--accent-bg); }
+.gnotes { padding: 8px 14px 0; color: var(--sub); font-size: 12.5px; white-space: pre-wrap; }
+.item { display: grid; grid-template-columns: minmax(180px, 260px) minmax(160px, auto) 1fr; gap: 6px 14px; padding: 10px 14px;
+  border-top: 1px solid var(--line); align-items: start; }
+.group > h2 + .item, .gnotes + .item { border-top: none; }
+.item.arr { grid-template-columns: 1fr; }
+.item.chg { background: var(--chg-bg); }
+.name { font-family: var(--mono); font-size: 13px; font-weight: 600; word-break: break-all; }
+.star { color: var(--chg); font-size: 11px; font-weight: 600; margin-left: 4px; white-space: nowrap; }
+.valbox { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.valbox input[type=text] { width: 110px; font-family: var(--mono); }
+input.bad { border-color: var(--err); background: var(--err-bg); }
+input.mod { border-color: var(--chg); }
+.orig { font-size: 11.5px; color: var(--chg); font-family: var(--mono); }
+.desc { font-size: 13px; }
+.desc .more { color: var(--sub); white-space: pre-wrap; font-size: 12.5px; margin-top: 4px; }
+.desc details summary { color: var(--accent); cursor: pointer; font-size: 12px; }
+.lead { color: var(--sub); white-space: pre-wrap; font-size: 12.5px; }
+.sw { position: relative; display: inline-block; width: 44px; height: 24px; }
+.sw input { opacity: 0; width: 0; height: 0; }
+.sw span { position: absolute; inset: 0; background: var(--line); border-radius: 12px; transition: .15s; cursor: pointer; }
+.sw span::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
+.sw input:checked + span { background: var(--ok); }
+.sw input:checked + span::before { transform: translateX(20px); }
+.swlabel { font-family: var(--mono); font-size: 12px; color: var(--sub); }
+.grid { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; overflow-x: auto; }
+.grow-row { display: flex; gap: 4px; align-items: center; }
+.ridx { width: 52px; flex: none; font-size: 11px; color: var(--sub); text-align: right; font-family: var(--mono); }
+.grow-row input[type=text] { width: 64px; font-family: var(--mono); padding: 3px 5px; text-align: right; }
+.grow-row input.ch { width: 40px; text-align: center; }
+.rlabel { font-size: 12px; color: var(--sub); white-space: nowrap; }
+.empty { text-align: center; color: var(--sub); padding: 60px 16px; }
+.empty .btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 16px 0; }
+.msg { padding: 8px 16px; font-size: 13px; display: none; }
+.msg.show { display: block; }
+.msg.ok { background: var(--ok-bg); color: var(--ok); }
+.msg.err { background: var(--err-bg); color: var(--err); }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); width: min(1000px, 94vw); max-height: 86vh; padding: 0; }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.dhead { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
+.dbody { padding: 10px 14px; overflow: auto; }
+.diff { font-family: var(--mono); font-size: 12.5px; white-space: pre; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; margin: 6px 0 14px; }
+.diff div { padding: 0 8px; }
+.diff .m { background: var(--err-bg); }
+.diff .p { background: var(--ok-bg); }
+.diff .ln { color: var(--sub); display: inline-block; width: 4.5em; }
+.hidden { display: none !important; }
+label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 800px) {
+  .layout { grid-template-columns: 1fr; padding: 16px; }
+  nav { display: none; }
+  .item { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>マイコンカー パラメータ編集</h1>
+    <button id="bDir" title="リポジトリのフォルダ（mcr2026）を選ぶと、保存した時にファイルを直接書き換えます">フォルダを開く</button>
+    <button id="bFile">ファイルを開く</button>
+    <button id="bGit">GitHub から読む</button>
+    <span class="src" id="srcInfo"></span>
+    <span class="grow"></span>
+    <input type="search" id="q" placeholder="名前・説明で探す" size="12">
+    <label class="chk"><input type="checkbox" id="onlyChg">変更だけ</label>
+    <button id="bDiff" disabled>変更を見る</button>
+    <button id="bSave" class="primary" disabled>保存</button>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="msg" id="msg"></div>
+</header>
+
+<div id="empty" class="empty">
+  <p>basic/config.h（調整用パラメータ）と debug/dbg_config.h（デバッグモードの設定）を読み込んで編集します。</p>
+  <div class="btns">
+    <button class="primary" id="eDir">フォルダを開く（直接書き換え）</button>
+    <button id="eGit">GitHub から読む（ダウンロードで保存）</button>
+  </div>
+  <p class="src">「フォルダを開く」は Chrome / Edge で使えます。WSL のフォルダは \\wsl.localhost\Ubuntu\home\ao\mcr2026 を選んでください。<br>
+  「保存」すると basic/config.h を書き換え、debug/config.h にも同じ内容をコピーします（debug/sync.sh と同じ）。</p>
+</div>
+
+<div class="layout hidden" id="main">
+  <nav id="nav"></nav>
+  <div id="list"></div>
+</div>
+
+<dialog id="dlgGit">
+  <div class="dhead"><b>GitHub から読む</b><span class="grow"></span><button class="small" data-close>閉じる</button></div>
+  <div class="dbody">
+    <p>リポジトリ <input type="text" id="gRepo" value="ao81/mcr2026" size="20">
+       ブランチ <select id="gBranch"><option>main</option></select>
+       <button id="gLoad" class="primary">読み込む</button></p>
+    <p class="src">公開リポジトリから読みます。保存するとファイルをダウンロードするので、リポジトリの同じ場所に上書きしてください。</p>
+  </div>
+</dialog>
+
+<dialog id="dlgDiff">
+  <div class="dhead"><b>変更の内容</b><span class="grow"></span>
+    <label class="chk" id="copyDbgWrap"><input type="checkbox" id="copyDbg" checked>debug/config.h にもコピー</label>
+    <button id="dSave" class="primary">保存</button><button class="small" data-close>閉じる</button></div>
+  <div class="dbody" id="diffBody"></div>
+</dialog>
+
+<input type="file" id="fileIn" accept=".h" multiple class="hidden">
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// 状態
+// ---------------------------------------------------------------------------
+const S = {
+  mode: null,          // 'dir' | 'file' | 'git'
+  dir: null,           // フォルダのハンドル（mode=dir）
+  files: [],           // { path, text, eol, groups, tokens:Map, edits:Map, handle }
+  cur: 0,
+  srcLabel: '',
+};
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------------------------------------------------------------------------
+// 解析：#define と const 配列を見つけて、値の位置（文字の番号）を覚える
+// ---------------------------------------------------------------------------
+const DEFINE_RE = /^(\s*#\s*define\s+)([A-Za-z_]\w*)(\s+)(\(\s*[-+]?\s*[0-9][\w.]*\s*\)|[-+]?[0-9][\w.]*)(\s*)(?:\/\/ ?(.*))?$/;
+const ARRAY_RE = /^\s*const\s+[A-Za-z_][\w\s]*?\s+([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*\{/;
+const NUM_RE = /^[-+]?(?:0[xX][0-9a-fA-F]+|[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)[fFuUlL]*/;
+
+function tokType(orig) {
+  const c = orig.replace(/[()\s]/g, '');
+  if (/^'.*'$/.test(c)) return 'char';
+  if (/^[-+]?0x/i.test(c)) return 'hex';
+  if (/[.]|[0-9][fF]$/.test(c) && !/^[-+]?0x/i.test(c)) return 'float';
+  return 'int';
+}
+
+function parseFile(path, text) {
+  const lines = text.split('\n');
+  const starts = []; let o = 0;
+  for (const l of lines) { starts.push(o); o += l.length + 1; }
+  const lineOf = p => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (starts[m] <= p) lo = m; else hi = m - 1; } return lo; };
+  const strip = l => l.replace(/\r$/, '').replace(/^\s*\/\/ ?/, '');
+  const groups = []; let g = null;
+  const newGroup = (title, notes) => { g = { title, notes, items: [] }; groups.push(g); };
+  newGroup('(先頭)', []);
+  const tokens = new Map();
+  const addTok = (start, orig, extra) => {
+    const t = Object.assign({ key: path + ':' + start, start, end: start + orig.length, orig, type: tokType(orig) }, extra || {});
+    tokens.set(t.key, t); return t;
+  };
+  let pending = [], last = null, hdr = null;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].replace(/\r$/, ''); const off = starts[i];
+    if (/^\/\/\s*[=*]{8,}\s*$/.test(raw)) {
+      if (hdr === null) hdr = [];
+      else { const t = hdr.map(s => s.replace(/\s+$/, '')).filter(s => s.trim()); newGroup((t[0] || '(無題)').trim(), t.slice(1)); hdr = null; pending = []; last = null; }
+      continue;
+    }
+    if (hdr !== null) { hdr.push(strip(raw)); continue; }
+    if (/^\s*$/.test(raw)) { last = null; continue; }
+    if (/^\s+\/\//.test(raw) && last) { last.desc.push(strip(raw)); continue; }
+    if (/^\s*\/\//.test(raw)) { pending.push(strip(raw)); last = null; continue; }
+    let m = raw.match(DEFINE_RE);
+    if (m) {
+      const vs = off + m[1].length + m[2].length + m[3].length;
+      const item = { kind: 'define', name: m[2], lead: pending, desc: m[6] !== undefined ? [m[6]] : [] };
+      item.tok = addTok(vs, m[4], { align: 'left' });
+      pending = []; g.items.push(item); last = item; continue;
+    }
+    m = raw.match(ARRAY_RE);
+    if (m) {
+      const brace = off + m[0].length - 1;
+      const item = { kind: 'array', name: m[1], lead: pending, desc: [], rows: [], notes: [] };
+      pending = [];
+      const toks = [], comments = [], inner = [];
+      let depth = 0, curG = null, endAbs = -1;
+      for (let p = brace; p < text.length; p++) {
+        const c = text[p];
+        if (c === '/' && text[p + 1] === '/') {
+          const e = text.indexOf('\n', p); const end = e < 0 ? text.length : e;
+          comments.push({ line: lineOf(p), text: text.slice(p + 2, end).replace(/\r$/, '').trim() });
+          p = end - 1; continue;
+        }
+        if (c === '{') { depth++; if (depth === 2) { curG = { toks: [] }; inner.push(curG); } continue; }
+        if (c === '}') { if (depth === 2 && curG) { curG.endLine = lineOf(p); curG = null; } depth--; if (depth === 0) { endAbs = p; break; } continue; }
+        if (c === "'") {
+          const e = text.indexOf("'", p + 1);
+          const t = addTok(p, text.slice(p, e + 1), { align: 'right', line: lineOf(p) });
+          toks.push(t); if (curG) curG.toks.push(t); p = e; continue;
+        }
+        if (/[-+0-9.]/.test(c) && !/[\w.]/.test(text[p - 1])) {
+          const mm = NUM_RE.exec(text.slice(p, p + 40));
+          if (mm && /[0-9]/.test(mm[0])) {
+            const t = addTok(p, mm[0], { align: 'right', line: lineOf(p) });
+            toks.push(t); if (curG) curG.toks.push(t); p += mm[0].length - 1; continue;
+          }
+        }
+      }
+      if (endAbs < 0) { last = null; continue; }
+      const tokLines = new Set(toks.map(t => t.line));
+      if (inner.length) {
+        for (const gr of inner) {
+          const cm = comments.find(c => c.line === gr.endLine);
+          item.rows.push({ toks: gr.toks, label: cm ? cm.text : '' });
+        }
+      } else {
+        const byLine = new Map();
+        for (const t of toks) { if (!byLine.has(t.line)) byLine.set(t.line, []); byLine.get(t.line).push(t); }
+        for (const [ln, ts] of byLine) {
+          const cm = comments.find(c => c.line === ln);
+          item.rows.push({ toks: ts, label: cm ? cm.text : '' });
+        }
+      }
+      const rowLines = new Set(inner.map(gr => gr.endLine));
+      for (const c of comments) if (!tokLines.has(c.line) && !rowLines.has(c.line)) item.notes.push(c.text);
+      const endLine = lineOf(endAbs);
+      const rest = lines[endLine].replace(/\r$/, '').slice(endAbs - starts[endLine]);
+      const tm = rest.match(/^\};?\s*\/\/ ?(.*)$/);
+      if (tm) item.desc.push(tm[1]);
+      g.items.push(item); last = item; i = endLine; continue;
+    }
+    pending = []; last = null;   // その他のコード（struct, #ifndef など）
+  }
+  return { groups: groups.filter(x => x.items.length), tokens };
+}
+
+// ---------------------------------------------------------------------------
+// 値の書き方を元の値に合わせる（0.180f → 小数3けた・f付き、(-60) → かっこ付き）
+// ---------------------------------------------------------------------------
+function display(orig) {
+  const t = tokType(orig);
+  if (t === 'char') return orig.slice(1, -1);
+  const c = orig.replace(/[()\s]/g, '').replace(/[uUlL]+$/, '');
+  return t === 'hex' ? c : c.replace(/[fF]$/, '');
+}
+function format(orig, input) {
+  const t = tokType(orig);
+  const s = String(input).trim();
+  if (t === 'char') {
+    if ([...s].length !== 1 || s === "'" || s === '\\') throw '1文字で入れてください';
+    return "'" + s + "'";
+  }
+  const paren = /^\(.*\)$/.test(orig.trim());
+  const core = orig.replace(/[()\s]/g, '');
+  const suffix = (core.match(/[uUlL]+$/) || [''])[0];
+  let out;
+  if (t === 'hex') {
+    if (!/^(0x[0-9a-fA-F]+|[0-9]+)$/i.test(s)) throw '0x00 の形か整数で入れてください';
+    out = /^0x/i.test(s) ? s : '0x' + Number(s).toString(16);
+  } else {
+    const body = s.replace(/[fF]$/, '');
+    if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(body)) throw '数で入れてください';
+    const n = Number(body);
+    if (!isFinite(n)) throw '数で入れてください';
+    if (t === 'float') {
+      const dec = ((core.replace(/[fF]$/, '').split('.')[1]) || '').length;
+      const sd = /e/i.test(body) ? 6 : ((body.split('.')[1]) || '').length;
+      out = n.toFixed(Math.min(9, Math.max(dec, sd, 1)));
+      if (/[fF]$/.test(core)) out += 'f';
+    } else {
+      if (!Number.isInteger(n)) throw '整数で入れてください';
+      if (suffix && n < 0) throw '0 以上で入れてください';
+      out = (core.startsWith('+') && n >= 0 ? '+' : '') + String(n) + suffix;
+    }
+  }
+  if (paren) out = '(' + out + ')';
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 書き換えた文字列を作る（右のコメントの位置がずれないよう、空白を増減する）
+// ---------------------------------------------------------------------------
+function buildText(f) {
+  let text = f.text;
+  const list = [...f.edits.entries()].map(([k, v]) => ({ t: f.tokens.get(k), v })).sort((a, b) => b.t.start - a.t.start);
+  for (const { t, v } of list) {
+    const diff = t.orig.length - v.length;
+    if (t.align === 'left') {
+      const sp = /^[ \t]*/.exec(text.slice(t.end))[0].length;
+      const afterIsComment = text.startsWith('//', t.end + sp);
+      const ns = afterIsComment ? Math.max(1, sp + diff) : sp;
+      text = text.slice(0, t.start) + v + ' '.repeat(ns) + text.slice(t.end + sp);
+    } else {
+      let p = t.start; while (p > 0 && (text[p - 1] === ' ' || text[p - 1] === '\t')) p--;
+      const sp = t.start - p;
+      const ns = sp === 0 ? 0 : Math.max(1, sp + diff);
+      text = text.slice(0, p) + ' '.repeat(ns) + v + text.slice(t.end);
+    }
+  }
+  return text;
+}
+
+function lineDiff(a, b) {
+  const A = a.split('\n'), B = b.split('\n'); const out = [];
+  if (A.length !== B.length) return [{ n: 0, a: '(行の数が変わりました)', b: '' }];
+  for (let i = 0; i < A.length; i++) if (A[i] !== B[i]) out.push({ n: i + 1, a: A[i].replace(/\r$/, ''), b: B[i].replace(/\r$/, '') });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 表示
+// ---------------------------------------------------------------------------
+function totalEdits() { return S.files.reduce((s, f) => s + f.edits.size, 0); }
+
+function msg(text, kind) {
+  const m = $('msg'); m.textContent = text; m.className = 'msg show ' + (kind || 'ok');
+  clearTimeout(msg.t); if (kind !== 'err') msg.t = setTimeout(() => m.className = 'msg', 6000);
+}
+
+function refreshCounts() {
+  const n = totalEdits();
+  $('bSave').disabled = n === 0; $('bDiff').disabled = n === 0;
+  $('bSave').textContent = n ? `保存（${n}）` : '保存';
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    const k = S.files[i].edits.size; el.textContent = S.files[i].path + (k ? `（${k}）` : '');
+  });
+  const f = S.files[S.cur]; if (!f) return;
+  f.groups.forEach((g, gi) => {
+    let k = 0; for (const it of g.items) k += itemEdits(f, it);
+    const a = document.querySelector(`#nav a[data-g="${gi}"] .n`); if (a) a.textContent = k ? k : '';
+  });
+}
+function itemToks(it) { return it.kind === 'define' ? [it.tok] : it.rows.flatMap(r => r.toks); }
+function itemEdits(f, it) { return itemToks(it).filter(t => f.edits.has(t.key)).length; }
+function isSwitch(it) {
+  if (it.kind !== 'define' || !/^[01]$/.test(it.tok.orig)) return false;
+  if (/^USE_|_USE$|_ENABLE$/.test(it.name)) return true;
+  return /1\s*にすると/.test(it.desc.concat(it.lead).join('\n'));
+}
+
+function renderTabs() {
+  $('tabs').innerHTML = S.files.map((f, i) => `<div class="tab${i === S.cur ? ' on' : ''}" data-i="${i}"></div>`).join('');
+  document.querySelectorAll('.tab').forEach(el => el.onclick = () => { S.cur = +el.dataset.i; renderAll(); });
+}
+
+function renderAll() {
+  $('empty').classList.toggle('hidden', S.files.length > 0);
+  $('main').classList.toggle('hidden', S.files.length === 0);
+  $('srcInfo').textContent = S.srcLabel;
+  renderTabs();
+  const f = S.files[S.cur]; if (!f) return;
+  $('nav').innerHTML = f.groups.map((g, gi) => `<a href="#g${gi}" data-g="${gi}">${esc(g.title)}<span class="n"></span></a>`).join('');
+  $('list').innerHTML = f.groups.map((g, gi) => `
+    <section class="group" id="g${gi}" data-g="${gi}">
+      <h2>${esc(g.title)}</h2>
+      ${g.notes.length ? `<div class="gnotes">${esc(g.notes.join('\n'))}</div>` : ''}
+      ${g.items.map((it, ii) => renderItem(f, it, gi, ii)).join('')}
+    </section>`).join('');
+  bindInputs(f);
+  refreshCounts(); applyFilter();
+}
+
+function descHTML(it) {
+  const lines = it.desc.filter(s => s.trim());
+  const first = lines[0] || '';
+  const rest = lines.slice(1);
+  const lead = it.lead.filter(s => s.trim());
+  let h = `<div class="desc">${esc(first)}`;
+  if (rest.length || (lead.length && it.kind === 'define' && first)) {
+    const body = (lead.length && first ? lead.concat(['']) : []).concat(rest);
+    if (body.length) h += rest.length <= 2 && !lead.length ? `<div class="more">${esc(rest.join('\n'))}</div>`
+      : `<details><summary>くわしく</summary><div class="more">${esc(body.join('\n'))}</div></details>`;
+  }
+  return h + '</div>';
+}
+
+function renderItem(f, it, gi, ii) {
+  const star = /★/.test(it.desc.concat(it.lead).join('')) ? '<span class="star">★実測</span>' : '';
+  const id = `i${gi}_${ii}`;
+  if (it.kind === 'define') {
+    const t = it.tok; const cur = f.edits.get(t.key) ?? t.orig;
+    const ed = f.edits.has(t.key);
+    let ctrl;
+    if (isSwitch(it)) {
+      ctrl = `<label class="sw"><input type="checkbox" data-k="${esc(t.key)}" ${cur === '1' ? 'checked' : ''}><span></span></label>
+              <span class="swlabel">${cur === '1' ? '1（使う）' : '0（使わない）'}</span>`;
+    } else {
+      ctrl = `<input type="text" data-k="${esc(t.key)}" value="${esc(display(cur))}" class="${ed ? 'mod' : ''}">`;
+    }
+    const leadOnly = !it.desc.filter(s => s.trim()).length && it.lead.length;
+    return `<div class="item${ed ? ' chg' : ''}" id="${id}" data-s="${esc((it.name + ' ' + it.desc.join(' ') + ' ' + it.lead.join(' ')).toLowerCase())}">
+      <div class="name">${esc(it.name)}${star}</div>
+      <div class="valbox">${ctrl}<button class="small rs ${ed ? '' : 'hidden'}" data-k="${esc(t.key)}" title="元の値に戻す">戻す</button>
+        <span class="orig">${ed ? '元: ' + esc(display(t.orig)) : ''}</span></div>
+      ${leadOnly ? `<div class="desc"><div class="lead">${esc(it.lead.join('\n'))}</div></div>` : descHTML(it)}
+    </div>`;
+  }
+  // 配列
+  const k = itemEdits(f, it);
+  let idx = 0;
+  const rows = it.rows.map(r => {
+    const from = idx; idx += r.toks.length;
+    const cells = r.toks.map(t => {
+      const cur = f.edits.get(t.key) ?? t.orig; const ed = f.edits.has(t.key);
+      return `<input type="text" data-k="${esc(t.key)}" value="${esc(display(cur))}" class="${t.type === 'char' ? 'ch ' : ''}${ed ? 'mod' : ''}" title="[${from + r.toks.indexOf(t)}] 元: ${esc(display(t.orig))}">`;
+    }).join('');
+    const ridx = it.rows.length > 1 && !r.label ? (r.toks.length > 1 ? `${from}〜${idx - 1}` : `${from}`) : (it.rows.length > 1 ? `${it.rows.indexOf(r)}` : '');
+    return `<div class="grow-row"><span class="ridx">${ridx}</span>${cells}<span class="rlabel">${esc(r.label)}</span></div>`;
+  }).join('');
+  return `<div class="item arr${k ? ' chg' : ''}" id="${id}" data-s="${esc((it.name + ' ' + it.desc.join(' ') + ' ' + it.lead.join(' ')).toLowerCase())}">
+    <div><span class="name">${esc(it.name)}</span>${star}
+      <button class="small rsa ${k ? '' : 'hidden'}" data-gi="${gi}" data-ii="${ii}">全部戻す</button></div>
+    ${it.lead.length ? `<div class="lead">${esc(it.lead.join('\n'))}</div>` : ''}
+    ${it.desc.length ? `<div class="desc">${esc(it.desc.join('\n'))}</div>` : ''}
+    ${it.notes.length ? `<div class="lead">${esc(it.notes.join('\n'))}</div>` : ''}
+    <div class="grid">${rows}</div>
+  </div>`;
+}
+
+function setEdit(f, key, input, el) {
+  const t = f.tokens.get(key);
+  let v;
+  try { v = format(t.orig, input); } catch (e) { el.classList.add('bad'); el.title = e; return false; }
+  el.classList.remove('bad'); el.title = '元: ' + display(t.orig);
+  if (v === t.orig) f.edits.delete(key); else f.edits.set(key, v);
+  el.classList.toggle('mod', f.edits.has(key));
+  const item = el.closest('.item');
+  if (item) {
+    const toks = [...item.querySelectorAll('[data-k]')].map(x => x.dataset.k);
+    const any = toks.some(k => f.edits.has(k));
+    item.classList.toggle('chg', any);
+    const rs = item.querySelector('.rs'); if (rs) rs.classList.toggle('hidden', !any);
+    const rsa = item.querySelector('.rsa'); if (rsa) rsa.classList.toggle('hidden', !any);
+    const o = item.querySelector('.orig'); if (o) o.textContent = any ? '元: ' + display(t.orig) : '';
+  }
+  refreshCounts();
+  return true;
+}
+
+function bindInputs(f) {
+  $('list').querySelectorAll('input[type=text][data-k]').forEach(el => {
+    el.addEventListener('input', () => setEdit(f, el.dataset.k, el.value, el));
+    el.addEventListener('blur', () => { if (!el.classList.contains('bad')) el.value = display(f.edits.get(el.dataset.k) ?? f.tokens.get(el.dataset.k).orig); });
+    el.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      const t = f.tokens.get(el.dataset.k); if (t.type === 'char' || t.type === 'hex') return;
+      e.preventDefault();
+      const cur = Number(el.value); if (!isFinite(cur)) return;
+      const dec = (el.value.split('.')[1] || '').length;
+      const step = (t.type === 'float' ? Math.pow(10, -Math.max(dec, 1)) : 1) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+      el.value = (cur + step).toFixed(t.type === 'float' ? Math.max(dec, 1) : 0);
+      setEdit(f, el.dataset.k, el.value, el);
+    });
+  });
+  $('list').querySelectorAll('input[type=checkbox][data-k]').forEach(el => {
+    el.addEventListener('change', () => {
+      setEdit(f, el.dataset.k, el.checked ? '1' : '0', el);
+      el.closest('.valbox').querySelector('.swlabel').textContent = el.checked ? '1（使う）' : '0（使わない）';
+    });
+  });
+  $('list').querySelectorAll('.rs').forEach(b => b.onclick = () => { f.edits.delete(b.dataset.k); renderAll(); });
+  $('list').querySelectorAll('.rsa').forEach(b => b.onclick = () => {
+    const it = f.groups[+b.dataset.gi].items[+b.dataset.ii]; itemToks(it).forEach(t => f.edits.delete(t.key)); renderAll();
+  });
+}
+
+function applyFilter() {
+  const q = $('q').value.trim().toLowerCase(); const only = $('onlyChg').checked;
+  document.querySelectorAll('.group').forEach(g => {
+    let vis = 0;
+    g.querySelectorAll('.item').forEach(it => {
+      const ok = (!q || it.dataset.s.includes(q)) && (!only || it.classList.contains('chg'));
+      it.classList.toggle('hidden', !ok); if (ok) vis++;
+    });
+    g.classList.toggle('hidden', vis === 0);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 読み込み
+// ---------------------------------------------------------------------------
+function confirmDrop() { return totalEdits() === 0 || confirm('保存していない変更があります。捨てて読み込みますか？'); }
+
+function setFiles(list, mode, label) {
+  S.files = list.map(x => {
+    const p = parseFile(x.path, x.text);
+    return { path: x.path, text: x.text, groups: p.groups, tokens: p.tokens, edits: new Map(), handle: x.handle || null, debugCopy: x.debugCopy || null };
+  });
+  S.mode = mode; S.srcLabel = label; S.cur = 0;
+  $('copyDbgWrap').classList.toggle('hidden', !(mode === 'dir' && S.files.some(f => f.debugCopy)));
+  renderAll();
+}
+
+async function readHandle(h) { return await (await h.getFile()).text(); }
+async function tryFile(dir, ...names) {
+  try { let d = dir; for (const n of names.slice(0, -1)) d = await d.getDirectoryHandle(n); return await d.getFileHandle(names[names.length - 1]); }
+  catch (e) { return null; }
+}
+
+async function openDir() {
+  if (!window.showDirectoryPicker) { msg('このブラウザではフォルダを開けません。Chrome か Edge を使うか、「ファイルを開く」「GitHub から読む」を使ってください', 'err'); return; }
+  if (!confirmDrop()) return;
+  let dir;
+  try { dir = await window.showDirectoryPicker({ id: 'mcr2026', mode: 'readwrite' }); } catch (e) { return; }
+  const list = [];
+  let cfg = await tryFile(dir, 'basic', 'config.h'), base = 'basic/';
+  if (!cfg) { cfg = await tryFile(dir, 'config.h'); base = dir.name + '/'; }
+  if (cfg) {
+    const debugCopy = base === 'basic/' ? await tryFile(dir, 'debug', 'config.h') : null;
+    list.push({ path: base + 'config.h', text: await readHandle(cfg), handle: cfg, debugCopy });
+  }
+  const dbg = (await tryFile(dir, 'debug', 'dbg_config.h')) || (await tryFile(dir, 'dbg_config.h'));
+  if (dbg) list.push({ path: (base === 'basic/' ? 'debug/' : dir.name + '/') + 'dbg_config.h', text: await readHandle(dbg), handle: dbg });
+  if (!list.length) { msg('選んだフォルダに basic/config.h が見つかりません。mcr2026 のフォルダを選んでください', 'err'); return; }
+  S.dir = dir;
+  setFiles(list, 'dir', `フォルダ: ${dir.name}（保存で直接書き換え）`);
+  msg(`${list.map(x => x.path).join('、')} を読み込みました`);
+}
+
+async function openFiles(fl) {
+  if (!confirmDrop()) return;
+  const list = [];
+  for (const f of fl) list.push({ path: f.name, text: await f.text() });
+  list.sort((a, b) => (a.path === 'config.h' ? -1 : 0) - (b.path === 'config.h' ? -1 : 0));
+  setFiles(list, 'file', 'ファイル（保存でダウンロード）');
+  msg(`${list.map(x => x.path).join('、')} を読み込みました`);
+}
+
+async function loadBranches() {
+  const repo = $('gRepo').value.trim();
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/branches?per_page=100`);
+    if (!r.ok) return;
+    const js = await r.json();
+    const names = js.map(b => b.name).sort((a, b) => (b === 'main') - (a === 'main'));
+    $('gBranch').innerHTML = names.map(n => `<option>${esc(n)}</option>`).join('');
+  } catch (e) { /* 一覧が取れなくても main で読める */ }
+}
+
+async function openGit() {
+  if (!confirmDrop()) return;
+  const repo = $('gRepo').value.trim(), br = $('gBranch').value;
+  const list = [];
+  for (const path of ['basic/config.h', 'debug/dbg_config.h']) {
+    try {
+      const r = await fetch(`https://raw.githubusercontent.com/${repo}/${encodeURIComponent(br).replace(/%2F/g, '/')}/${path}?t=${Date.now()}`);
+      if (r.ok) list.push({ path, text: await r.text() });
+    } catch (e) { }
+  }
+  $('dlgGit').close();
+  if (!list.length) { msg('GitHub から読めませんでした（リポジトリ名・ブランチ・ネットワークを確かめてください）', 'err'); return; }
+  setFiles(list, 'git', `GitHub: ${repo} ${br}（保存でダウンロード）`);
+  msg(`${list.map(x => x.path).join('、')} を読み込みました`);
+}
+
+// ---------------------------------------------------------------------------
+// 変更の確認と保存
+// ---------------------------------------------------------------------------
+function showDiff() {
+  let h = '';
+  for (const f of S.files) {
+    if (!f.edits.size) continue;
+    const d = lineDiff(f.text, buildText(f));
+    h += `<h3>${esc(f.path)}（${f.edits.size} 個の値）</h3><div class="diff">` +
+      d.map(x => `<div class="m"><span class="ln">${x.n}</span>- ${esc(x.a)}</div><div class="p"><span class="ln">${x.n}</span>+ ${esc(x.b)}</div>`).join('') + '</div>';
+  }
+  $('diffBody').innerHTML = h || '<p>変更はありません</p>';
+  $('dSave').textContent = S.mode === 'dir' ? '保存（ファイルを書き換え）' : '保存（ダウンロード）';
+  $('dlgDiff').showModal();
+}
+
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  a.download = name.split('/').pop(); document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function writeHandle(h, text) {
+  if (h.queryPermission && (await h.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+    if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('書き込みが許可されませんでした');
+  }
+  const w = await h.createWritable(); await w.write(text); await w.close();
+}
+
+async function save() {
+  const done = [];
+  try {
+    for (const f of S.files) {
+      if (!f.edits.size) continue;
+      const nt = buildText(f);
+      if (S.mode === 'dir') {
+        const now = await readHandle(f.handle);
+        if (now !== f.text && !confirm(`${f.path} は読み込んだ後に書き換えられています（git pull など）。\nこのまま上書きすると、その変更は消えます。上書きしますか？\n（やめて「フォルダを開く」で読み直すのが安全です）`)) continue;
+        await writeHandle(f.handle, nt); done.push(f.path);
+        if (f.debugCopy && $('copyDbg').checked) { await writeHandle(f.debugCopy, nt); done.push('debug/config.h'); }
+      } else {
+        download(f.path, nt); done.push(f.path.split('/').pop() + '（ダウンロード）');
+      }
+      const p = parseFile(f.path, nt);
+      f.text = nt; f.groups = p.groups; f.tokens = p.tokens; f.edits = new Map();
+    }
+  } catch (e) { msg('保存できませんでした: ' + (e.message || e), 'err'); renderAll(); return; }
+  $('dlgDiff').close();
+  renderAll();
+  if (done.length) msg('保存しました: ' + done.join('、') + (S.mode === 'dir' ? '' : '。リポジトリの同じ場所に上書きしてください'));
+}
+
+// ---------------------------------------------------------------------------
+// ボタン
+// ---------------------------------------------------------------------------
+$('bDir').onclick = $('eDir').onclick = openDir;
+$('bFile').onclick = () => $('fileIn').click();
+$('fileIn').onchange = e => { if (e.target.files.length) openFiles([...e.target.files]); e.target.value = ''; };
+$('bGit').onclick = $('eGit').onclick = () => { $('dlgGit').showModal(); loadBranches(); };
+$('gLoad').onclick = openGit;
+$('bDiff').onclick = showDiff;
+$('bSave').onclick = showDiff;
+$('dSave').onclick = save;
+$('q').oninput = applyFilter;
+$('onlyChg').onchange = applyFilter;
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
+window.addEventListener('beforeunload', e => { if (totalEdits()) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (totalEdits()) showDiff(); } });
+</script>
+</body>
+</html>
