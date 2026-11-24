@@ -6,6 +6,10 @@
 //   dbg_task()   : loop から毎回呼ぶ。記録が止まり、通常のログが閉じられた後に dbgNNNN.csv へ書き出す
 //**************************************************************************
 #if DBG_ENABLE
+static_assert(DBG_INTERVAL_MS >= 1 && DBG_SAMPLES > 0, "debug interval and samples must be positive");
+static_assert(DBG_TARGET >= 1 && DBG_TARGET <= 4, "unknown debug target");
+static_assert(DBG_TARGET != 3 || DBG_TO_MS > DBG_FROM_MS, "empty time window");
+static_assert(!DBG_AUTO_STOP || DBG_TARGET == 3 || DBG_TARGET_NO >= 1, "select a numbered event");
 
 typedef struct {
     uint16_t t;        // スタートからの時間 [ms]（下16ビット。書き出す時に戻す）
@@ -57,7 +61,28 @@ static bool dbg_is_event(int p) {
     return (p >= PT_LANE_R_FOUND && p <= PT_LANE_R_SELECT) || (p >= PT_LANE_R_APPROACH && p <= 450)
         || (p >= PT_LANE_L_FOUND && p <= PT_LANE_L_SELECT) || (p >= PT_LANE_L_APPROACH && p <= 750);
 #else
+#if DBG_TARGET == 4
+    // 緩いカーブは通常トレースのまま曲がる。舵の一瞬の揺れを除く。
+    static int turning_ms, straight_ms;
+    static bool active;
+    if (p < PT_TRACE || p >= PT_CROSS_FOUND) {
+        turning_ms = straight_ms = 0;
+        active = false;
+    } else if ((p >= PT_CURVE_R && p < PT_CURVE_L + TRACE_STAGES) || fabsf(servo_est_deg) >= 5.0f) {
+        if (turning_ms < 30) ++turning_ms;
+        straight_ms = 0;
+        if (turning_ms >= 30) active = true;
+    } else {
+        turning_ms = 0;
+        if (fabsf(servo_est_deg) <= 3.0f) {
+            if (straight_ms < 70) ++straight_ms;
+            if (straight_ms >= 70) active = false;
+        } else straight_ms = 0;
+    }
+    return active;
+#else
     return cnt_start >= DBG_FROM_MS && cnt_start < DBG_TO_MS;
+#endif
 #endif
 }
 
@@ -74,6 +99,8 @@ static void dbg_take_params_out(void) {
     // 区間に入った時（ラインを見つけた時）にはまだ決まっていない値もあるので、出た時にもう一度取る
     dbg_p_cross_to = crank_to_m;    dbg_p_cross_w = crank_line_w_m;
     dbg_p_lane_to = lane_to_m;      dbg_p_lane_w = lane_line_w_m;
+    dbg_p_crank_entry = crank_entry_mps;
+    dbg_p_lane_entry = lane_entry_mps;
     dbg_p_vmax_out = v_max_mps;
     dbg_p_wait = plan_wait_m;  dbg_p_len = plan_len_m;
     dbg_p_speed = plan_speed_mps;  dbg_p_angle = plan_angle;
@@ -85,6 +112,12 @@ static void dbg_freeze(int reason) {
     dbg_reason = reason;
     dbg_stop_ms = cnt_start;
     dbg_frozen = 1;
+#if DBG_AUTO_STOP
+    if (reason != 4) {
+        pattern = PT_END;
+        run_end();  // モータ出力を0にし、通常ログにも終了を要求する
+    }
+#endif
 }
 
 //**********************************************************************
@@ -107,6 +140,13 @@ void dbg_sample(void) {
         }
     } else if (!ev && dbg_in_event) {
         dbg_in_event = 0;
+#if DBG_TARGET != 3
+        // ハーフラインの仮判定がクロスに訂正された場合などは完走として数えない。
+        if (p < PT_TRACE || p >= PT_CROSS_FOUND) {
+            if (dbg_events == DBG_TARGET_NO) dbg_trigger_ms = 0;
+            --dbg_events;
+        } else
+#endif
         if (DBG_TARGET_NO == 0 || dbg_events == DBG_TARGET_NO) dbg_end_ms = cnt_start;
     }
 
@@ -170,7 +210,7 @@ static int dbg_header_line(int n, char* buf, int size) {
     }
     // 小数の値は "#param,名前,値" で1行ずつ
     static const char* const names[] = {
-        "V_MAX_MPS", "MOTOR_TAU_S", "GRIP_LAT_MPS2", "GRIP_LONG_MPS2", "PLAN_GRIP_RATIO_LAT", "PLAN_GRIP_RATIO_LONG",
+        "CURVE_DRIVE_PERCENT", "V_MAX_MPS", "MOTOR_TAU_S", "GRIP_LAT_MPS2", "GRIP_LONG_MPS2", "PLAN_GRIP_RATIO_LAT", "PLAN_GRIP_RATIO_LONG",
         "CRANK_BRAKE_POWER", "CRANK_BRAKE_MARGIN_M", "CRANK_QUICK_WINDOW_M", "PLAN_OVERSPEED",
         "LANE_BRAKE_POWER", "LANE_BRAKE_MARGIN_M", "SENSOR_TO_REAR_AXLE_M", "WHEELBASE_M",
         "crank_to_m", "crank_line_w_m", "crank_entry_mps", "crank_extra_m", "crank_q_r", "crank_q_d", "crank_q_dlo",
@@ -178,7 +218,7 @@ static int dbg_header_line(int n, char* buf, int size) {
         "vmax_at_trigger", "vmax_at_end", "plan_wait_m", "plan_len_m", "plan_speed_mps", "plan_angle", "spot_no"
     };
     const float vals[] = {
-        V_MAX_MPS, MOTOR_TAU_S, GRIP_LAT_MPS2, GRIP_LONG_MPS2, PLAN_GRIP_RATIO_LAT, PLAN_GRIP_RATIO_LONG,
+        (float)CURVE_DRIVE_PERCENT, V_MAX_MPS, MOTOR_TAU_S, GRIP_LAT_MPS2, GRIP_LONG_MPS2, PLAN_GRIP_RATIO_LAT, PLAN_GRIP_RATIO_LONG,
         (float)CRANK_BRAKE_POWER, CRANK_BRAKE_MARGIN_M, CRANK_QUICK_WINDOW_M, PLAN_OVERSPEED,
         (float)LANE_BRAKE_POWER, LANE_BRAKE_MARGIN_M, SENSOR_TO_REAR_AXLE_M, WHEELBASE_M,
         dbg_p_cross_to, dbg_p_cross_w, dbg_p_crank_entry, dbg_p_crank_extra, crank_q_r, crank_q_d, crank_q_dlo,
@@ -230,30 +270,29 @@ static unsigned long dbg_first_t_hint(void) {
 // loop から毎回呼ぶ：記録が止まり、通常のログを閉じた後に microSD へ書き出す
 //**********************************************************************
 void dbg_task(void) {
-    static unsigned long ready_ms = 0;
+    // 通常ログのcloseを待つ。
     if (dbg_written || err_sd != 0) return;
     if (!dbg_frozen) {
         // 区間の前にプッシュスイッチで止めた場合も、ここで止めて書き出す
         if (log_st == LOG_CLOSE) dbg_freeze(2);
         return;
     }
-    if (log_st != LOG_CLOSE || log_write != log_read) return;   // 通常のログを書き終えるまで待つ
-    if (ready_ms == 0) { ready_ms = cnt0 + 200; return; }       // 通常のログを閉じるのを待つ
-    if (cnt0 < ready_ms) return;
-
-    // 通常のログと同じ番号にする（renban.txt には今のログの番号が入っている）
-    int no = 0;
+    if (!run_log_closed) return;
+    int no = run_log_no;
     char buf[200];
-    File f = SD.open("renban.txt", FILE_READ);
-    if (f) {
-        int n = f.read(buf, 8);
-        buf[n > 0 ? n : 0] = '\0';
-        sscanf(buf, "%d", &no);
-        f.close();
-    }
     char name[16];
+#if DBG_AUTO_STOP
+    static const char* const prefix[] = {"", "CRK", "LANE", "TIME", "CURV"};
+    snprintf(name, sizeof(name), "%s%04d.csv", prefix[DBG_TARGET], no);
+#else
     snprintf(name, sizeof(name), "dbg%04d.csv", no);
+#endif
     led_out_m(1);                                  // 書いている間はマイコンボードの LED を点ける
+    if (SD.exists(name)) {
+        Serial.println("同じ番号の詳細ログが既にあります。SDを確認してください。");
+        err_sd = 1;
+        return;
+    }
     File out = SD.open(name, FILE_WRITE);
     if (out) {
         for (int n = 0; dbg_header_line(n, buf, sizeof(buf)); n++) out.println(buf);
@@ -262,9 +301,15 @@ void dbg_task(void) {
             dbg_data_line(i, buf, sizeof(buf), &t_full);
             out.println(buf);
         }
+        snprintf(buf, sizeof(buf), "#complete,%d", (int)dbg_count);
+        out.println(buf);
         out.close();
         Serial.print(name);
         Serial.println("に詳しいログを書きました。");
+    } else {
+        err_sd = 1;
+        Serial.println("詳細ログを作成できません。SDを確認してください。");
+        return;
     }
     led_out_m(0);                                  // 消えたら電源を切ってよい
     dbg_written = 1;
@@ -287,6 +332,7 @@ static void dbg_host_dump(void) {
         dbg_data_line(i, buf, sizeof(buf), &t_full);
         fprintf(fp, "%s\n", buf);
     }
+    fprintf(fp, "#complete,%d\n", (int)dbg_count);
     fclose(fp);
 }
 static int dbg_host_reg = atexit(dbg_host_dump);

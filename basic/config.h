@@ -300,6 +300,7 @@ const int COURSE_START_ROWS[] = {
 //========================================
 // 通常走行・大曲がり（USE_NEW_TRACE_SPEED / USE_NEW_CURVE_SPEED）
 //========================================
+#define CURVE_DRIVE_PERCENT      100     // カーブ中の正のモータ出力倍率 [%]（100で元の出力）
 #define TRACE_MIN_POWER         (-60)   // 曲がれる速さより速いときに出すブレーキの強さの限度（-100〜100）
 #define TRACE_CURV_FILTER_S     0.030f  // 速さを決める曲率をならす時定数 [s]（センサの段差でハンドル角度が行き来する分をならす）
 #define PREVIEW_CURV_FILTER_S   0.100f  // USE_NEW_CURVE_PREVIEW のときに上の代わりに使う時定数 [s]。

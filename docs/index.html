@@ -128,10 +128,18 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
     <button class="primary" id="eDir">フォルダを開く（直接書き換え）</button>
     <button id="eGit">GitHub から読む（ダウンロードで保存）</button>
   </div>
-  <p class="src">「フォルダを開く」は Chrome / Edge で使えます。WSL のフォルダは \\wsl.localhost\Ubuntu\home\ao\mcr2026 を選んでください。<br>
+  <p class="src">Braveで直接同期する場合はリポジトリで <code>python tools/config_editor.py</code> を実行し、表示されたURLを開いてください。<br>
   「保存」すると basic/config.h を書き換え、debug/config.h にも同じ内容をコピーします（debug/sync.sh と同じ）。</p>
 </div>
 
+<section id="session" class="bar hidden">
+  <label>記録区間 <select id="eventType"><option value="1">クランク</option><option value="4">カーブ</option><option value="2">レーンチェンジ</option></select></label>
+  <label><input type="number" id="eventNumber" min="1" max="999" value="1" style="width:4em"> 回目</label>
+  <button id="preset">停止・保存を設定</button>
+  <label class="btn">専用CSVで自動調整 <input type="file" id="readLog" accept=".csv,text/csv"></label>
+  <button id="reloadDisk" class="hidden">ディスクから再読込</button>
+  <output id="tuneResult" aria-live="polite"></output>
+</section>
 <div class="layout hidden" id="main">
   <nav id="nav"></nav>
   <div id="list"></div>
@@ -155,6 +163,7 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
 </dialog>
 
 <input type="file" id="fileIn" accept=".h" multiple class="hidden">
+<input type="file" id="folderIn" webkitdirectory multiple class="hidden">
 
 <script>
 "use strict";
@@ -361,7 +370,7 @@ function msg(text, kind) {
 
 function refreshCounts() {
   const n = totalEdits();
-  $('bSave').disabled = n === 0; $('bDiff').disabled = n === 0;
+  $('bSave').disabled = n === 0 && !(S.mode === 'local' && needsSync); $('bDiff').disabled = n === 0;
   $('bSave').textContent = n ? `保存（${n}）` : '保存';
   document.querySelectorAll('.tab').forEach((el, i) => {
     const k = S.files[i].edits.size; el.textContent = S.files[i].path + (k ? `（${k}）` : '');
@@ -389,6 +398,8 @@ function renderAll() {
   $('empty').classList.toggle('hidden', S.files.length > 0);
   $('main').classList.toggle('hidden', S.files.length === 0);
   $('srcInfo').textContent = S.srcLabel;
+  $('session').classList.toggle('hidden', !S.files.length);
+  $('reloadDisk').classList.toggle('hidden', S.mode !== 'local');
   renderTabs();
   const f = S.files[S.cur]; if (!f) return;
   $('nav').innerHTML = f.groups.map((g, gi) => `<a href="#g${gi}" data-g="${gi}">${esc(g.title)}<span class="n"></span></a>`).join('');
@@ -526,7 +537,7 @@ function confirmDrop() { return totalEdits() === 0 || confirm('保存してい�
 function setFiles(list, mode, label) {
   S.files = list.map(x => {
     const p = parseFile(x.path, x.text);
-    return { path: x.path, text: x.text, groups: p.groups, tokens: p.tokens, edits: new Map(), handle: x.handle || null, debugCopy: x.debugCopy || null };
+    return { path: x.path, text: x.text, groups: p.groups, tokens: p.tokens, edits: new Map(), handle: x.handle || null, mirrorText: x.mirrorText, debugCopy: x.debugCopy || null };
   });
   S.mode = mode; S.srcLabel = label; S.cur = 0;
   $('copyDbgWrap').classList.toggle('hidden', !(mode === 'dir' && S.files.some(f => f.debugCopy)));
@@ -540,16 +551,20 @@ async function tryFile(dir, ...names) {
 }
 
 async function openDir() {
-  if (!window.showDirectoryPicker) { msg('このブラウザではフォルダを開けません。Chrome か Edge を使うか、「ファイルを開く」「GitHub から読む」を使ってください', 'err'); return; }
+  if (!window.showDirectoryPicker) { $('folderIn').click(); return; }
   if (!confirmDrop()) return;
   let dir;
-  try { dir = await window.showDirectoryPicker({ id: 'mcr2026', mode: 'readwrite' }); } catch (e) { return; }
+  try { dir = await window.showDirectoryPicker({ id: 'mcr2026', mode: 'readwrite' }); }
+  catch (e) {
+    if (e.name !== 'AbortError') { $('folderIn').click(); msg('フォルダ読込とダウンロード保存に切り替えます'); }
+    return;
+  }
   const list = [];
   let cfg = await tryFile(dir, 'basic', 'config.h'), base = 'basic/';
   if (!cfg) { cfg = await tryFile(dir, 'config.h'); base = dir.name + '/'; }
   if (cfg) {
     const debugCopy = base === 'basic/' ? await tryFile(dir, 'debug', 'config.h') : null;
-    list.push({ path: base + 'config.h', text: await readHandle(cfg), handle: cfg, debugCopy });
+    list.push({ path: base + 'config.h', text: await readHandle(cfg), handle: cfg, debugCopy, mirrorText: debugCopy ? await readHandle(debugCopy) : null });
   }
   const dbg = (await tryFile(dir, 'debug', 'dbg_config.h')) || (await tryFile(dir, 'dbg_config.h'));
   if (dbg) list.push({ path: (base === 'basic/' ? 'debug/' : dir.name + '/') + 'dbg_config.h', text: await readHandle(dbg), handle: dbg });
@@ -607,7 +622,7 @@ function showDiff() {
       d.map(x => `<div class="m"><span class="ln">${x.n}</span>- ${esc(x.a)}</div><div class="p"><span class="ln">${x.n}</span>+ ${esc(x.b)}</div>`).join('') + '</div>';
   }
   $('diffBody').innerHTML = h || '<p>変更はありません</p>';
-  $('dSave').textContent = S.mode === 'dir' ? '保存（ファイルを書き換え）' : '保存（ダウンロード）';
+  $('dSave').textContent = S.mode === 'local' ? '設定とスケッチを同期' : S.mode === 'dir' ? '保存（ファイルを書き換え）' : '保存（ダウンロード）';
   $('dlgDiff').showModal();
 }
 
@@ -626,8 +641,21 @@ async function writeHandle(h, text) {
 }
 
 async function save() {
+  const dbg = headerFile('dbg_config.h');
+  try {
+    if (dbg && (setting(dbg,'DBG_INTERVAL_MS') < 1 || setting(dbg,'DBG_SAMPLES') < 1)) throw Error('記録間隔と件数は1以上で指定してください');
+  } catch(e) { $('dlgDiff').close(); msg(e.message,'err'); return; }
+  if (S.mode === 'local') {
+    if (!saving) try { await saveDisk(); } catch(e) { $('dlgDiff').close(); msg(e.message,'err'); }
+    return;
+  }
   const done = [];
   try {
+    if (S.mode === 'dir' && $('copyDbg').checked) {
+      for (const f of S.files.filter(f => f.debugCopy && f.edits.size)) {
+        if (await readHandle(f.debugCopy) !== f.mirrorText) throw Error('debug/config.h に外部変更があります。フォルダを開き直してください');
+      }
+    }
     for (const f of S.files) {
       if (!f.edits.size) continue;
       const nt = buildText(f);
@@ -635,7 +663,7 @@ async function save() {
         const now = await readHandle(f.handle);
         if (now !== f.text && !confirm(`${f.path} は読み込んだ後に書き換えられています（git pull など）。\nこのまま上書きすると、その変更は消えます。上書きしますか？\n（やめて「フォルダを開く」で読み直すのが安全です）`)) continue;
         await writeHandle(f.handle, nt); done.push(f.path);
-        if (f.debugCopy && $('copyDbg').checked) { await writeHandle(f.debugCopy, nt); done.push('debug/config.h'); }
+        if (f.debugCopy && $('copyDbg').checked) { await writeHandle(f.debugCopy, nt); f.mirrorText = nt; done.push('debug/config.h'); }
       } else {
         download(f.path, nt); done.push(f.path.split('/').pop() + '（ダウンロード）');
       }
@@ -651,6 +679,183 @@ async function save() {
 // ---------------------------------------------------------------------------
 // ボタン
 // ---------------------------------------------------------------------------
+// ローカル版は同一オリジンのPythonサーバがスケッチと設定をまとめて同期する。
+let diskRevision = '', needsSync = false, saving = false;
+function acceptDisk(data) {
+  diskRevision = data.revision;
+  needsSync = data.needsSync;
+  setFiles(data.files, 'local', needsSync ? '走行コードに未同期の変更があります' : 'ローカル同期済み');
+}
+async function refreshDisk(force = false) {
+  if (saving || (S.mode && S.mode !== 'local' && !force)) return;
+  const previous = diskRevision;
+  const response = await fetch('/api/config', {cache:'no-store'});
+  if (!response.ok) throw Error('ローカル同期サーバに接続できません');
+  const data = await response.json();
+  if (saving || diskRevision !== previous || (!force && data.revision === previous)) return;
+  if (totalEdits() && !force) {
+    msg('外部変更を検出しました。編集を残したまま保存を保留します。再読込でディスクの値を確認できます。','err');
+    return;
+  }
+  acceptDisk(data);
+}
+async function saveDisk() {
+  saving = true;
+  try {
+    const edits = Object.fromEntries(S.files.filter(f => f.edits.size).map(f => [f.path, buildText(f)]));
+    const response = await fetch('/api/config', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({revision:diskRevision, edits})});
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error || '同期に失敗しました');
+    acceptDisk(data);
+    $('dlgDiff').close();
+    msg('設定と debug/debug.ino を同期しました');
+  } finally { saving = false; }
+}
+
+function field(file, name) {
+  const item = file?.groups.flatMap(g => g.items).find(it => it.name === name && it.kind === 'define');
+  if (!item) throw Error(name + ' がありません。統合版のリポジトリを読み込んでください');
+  return item.tok;
+}
+function setting(file, name) {
+  const t = field(file, name);
+  return Number(display(file.edits.get(t.key) ?? t.orig));
+}
+function stageValues(file, values) {
+  const pending = Object.entries(values).map(([name,value]) => {
+    const t = field(file, name);
+    return [t, format(t.orig, value)];
+  });
+  for (const [t, value] of pending) {
+    if (value === t.orig) file.edits.delete(t.key); else file.edits.set(t.key,value);
+  }
+  renderAll();
+}
+function headerFile(name) {
+  return S.files.find(f => f.path.split('/').pop() === name);
+}
+function prepareRun() {
+  const n = Number($('eventNumber').value);
+  if (!Number.isInteger(n) || n < 1 || n > 999) throw Error('回数は1〜999で指定してください');
+  stageValues(headerFile('dbg_config.h'), {DBG_ENABLE:1, DBG_AUTO_STOP:1, DBG_TARGET:Number($('eventType').value),
+    DBG_TARGET_NO:n, DBG_POST_MS:0, DBG_INTERVAL_MS:$('eventType').value === '4' ? 10 : 5});
+  msg('区間終了で車体を停止する設定を用意しました。保存後、debug/debug.ino を書き込んでください');
+}
+
+function tuneLog(csv, cfg) {
+  const rows = [], params = {}, flags = {}, meta = {};
+  let cols, completed = false;
+  const fail = message => { throw Error(message); };
+  for (const line of csv.trim().split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    if (completed) fail('CSVの終端以降にデータがあります');
+    const cells = line.split(',');
+    if (line.startsWith('#')) {
+      const [tag, ...pairs] = cells;
+      if (tag === '#param') params[pairs[0]] = Number(pairs[1]);
+      else if (tag === '#complete') {
+        if (+pairs[0] !== rows.length) fail('ログの行数が一致しません');
+        completed = true;
+      } else {
+        for (let i = tag === '#switch' ? 0 : -1; i + 1 < pairs.length; i += 2) {
+          const key = i < 0 ? tag.slice(1) : pairs[i];
+          (tag === '#switch' ? flags : meta)[key] = Number(pairs[i + 1]);
+        }
+      }
+      continue;
+    }
+    if (!cols) {
+      cols = cells;
+      for (const k of ['ms','pattern','speed_mm_s','servo_deg10','model_ok','steer_deg10','motor_l','motor_r']) {
+        if (!cols.includes(k)) fail('専用ログの列がありません: ' + k);
+      }
+      continue;
+    }
+    if (cells.length !== cols.length) fail('CSVの列数が一致しません');
+    const row = Object.fromEntries(cols.map((k,i) => [k, Number(cells[i].replace(/^'/,''))]));
+    if (cells.some(x => !x.trim()) || Object.values(row).some(x => !Number.isFinite(x))) fail('数値の壊れたログです');
+    if (rows.length && row.ms - rows[rows.length-1].ms !== meta.interval_ms) fail('ログの時系列が連続していません');
+    rows.push(row);
+  }
+  if (!completed || meta.dbg !== 1 || meta.reason !== 1 || !(meta.end_ms > meta.trigger_ms) || !(meta.interval_ms > 0)) fail('対象区間の完走と書き出し完了を確認できません');
+  const event = rows.filter(r => r.ms >= meta.trigger_ms && r.ms < meta.end_ms);
+  if (event.length < 3 || event[0].ms - meta.trigger_ms >= meta.interval_ms ||
+      meta.end_ms - event[event.length-1].ms > meta.interval_ms) fail('区間全体が必要です。記録時間を長くして再走してください');
+  if (event.some(r => r.model_ok !== 1 || r.speed_mm_s < 0)) fail('区間内の速度推定を使用できません');
+  function baseline(name) {
+    const v = params[name];
+    if (!Number.isFinite(v) || Math.abs(setting(cfg,name)-v) > 0.00051) fail('走行時の設定と一致しません: ' + name);
+    return v;
+  }
+  let name, next, detail;
+  if (meta.target === 4) {
+    name = 'CURVE_DRIVE_PERCENT';
+    const old = baseline(name), wheelbase = baseline('WHEELBASE_M');
+    const limit = baseline('GRIP_LAT_MPS2') * baseline('PLAN_GRIP_RATIO_LAT');
+    if (!(wheelbase > 0 && limit > 0 && old > 0 && old <= 100)) fail('車体の設定を確認してください');
+    const loads = event.filter(r => Math.abs(r.steer_deg10) >= 50 && Math.max(r.motor_l,r.motor_r) > 0)
+      .map(r => (r.speed_mm_s/1000)**2 * Math.abs(Math.tan(r.servo_deg10*Math.PI/1800)) / wheelbase)
+      .sort((a,b) => a-b);
+    if (loads.length < 3) fail('カーブ中の駆動データが不足しています');
+    const lat = loads[Math.floor(0.9*(loads.length-1))];
+    next = lat > limit*1.05 ? Math.max(1,old-5,Math.round(old*Math.sqrt(limit/lat))) : old;
+    detail = '推定横加速度の90パーセンタイル ' + lat.toFixed(2) + ' / 設定上限 ' + limit.toFixed(2) + ' m/s²';
+  } else if (meta.target === 1 || meta.target === 2) {
+    const crank = meta.target === 1, prefix = crank ? 'CRANK' : 'LANE';
+    name = prefix + '_BRAKE_MARGIN_M';
+    if (flags[prefix+'_BRAKE'] !== 1 || setting(cfg,'USE_NEW_'+prefix+'_BRAKE') !== 1) fail('計算による減速が無効なのでマージンは調整できません');
+    const old = baseline(name);
+    const turn = event.find(r => crank ? [110,112,150,152].includes(r.pattern) :
+      [320,360,620,660].some(p => r.pattern >= p && r.pattern <= p+10));
+    const goal = params[crank ? 'crank_entry_mps' : 'lane_entry_mps'];
+    const decel = baseline('GRIP_LONG_MPS2') * baseline('PLAN_GRIP_RATIO_LONG');
+    if (!turn || !(goal > 0 && decel > 0 && old >= 0)) fail('旋回開始点か計画速度が不足しています');
+    const speed = turn.speed_mm_s/1000;
+    const delta = (speed*speed-goal*goal)/(2*decel);
+    next = Math.abs(speed-goal) <= goal*0.05 ? old : Math.max(0,old+Math.max(-0.02,Math.min(0.02,delta)));
+    next = Number(next.toFixed(3));
+    detail = '旋回進入 ' + speed.toFixed(2) + ' / 計画 ' + goal.toFixed(2) + ' m/s';
+  } else fail('自動調整の対象外の区間です');
+  return {name, next, detail};
+}
+
+$('preset').onclick = () => { try { prepareRun(); } catch(e) { msg(e.message || e,'err'); } };
+$('readLog').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const cfg = headerFile('config.h');
+    const result = tuneLog(await file.text(),cfg);
+    const old = setting(cfg,result.name);
+    stageValues(cfg,{[result.name]:result.next});
+    $('tuneResult').textContent = result.detail + '。' + result.name + ' ' + old + ' → ' + result.next +
+      (old === result.next ? '（設定範囲内）' : '（保存で反映）');
+  } catch(err) { $('tuneResult').textContent = err.message || String(err); }
+  e.target.value = '';
+};
+$('reloadDisk').onclick = async () => {
+  if (confirmDrop()) try { await refreshDisk(true); } catch(e) { msg(e.message,'err'); }
+};
+if (location.hostname === '127.0.0.1' && location.protocol === 'http:') {
+  refreshDisk().catch(() => {});
+  window.addEventListener('focus', () => { if (S.mode === 'local') refreshDisk().catch(e => msg(e.message,'err')); });
+}
+
+$('folderIn').onchange = async event => {
+  const files = Array.from(event.target.files);
+  event.target.value = '';
+  if (!files.length || !confirmDrop()) return;
+  try {
+    const list = [];
+    for (const file of files) {
+      const path = file.webkitRelativePath.split('/').slice(1).join('/');
+      if (path === 'basic/config.h' || path === 'debug/dbg_config.h') list.push({path, text:await file.text()});
+    }
+    if (!list.length) throw Error('mcr2026 フォルダを選択してください');
+    setFiles(list, 'file', 'フォルダ読込（保存でダウンロード）');
+  } catch(e) { msg(e.message,'err'); }
+};
+if (!window.showDirectoryPicker) $('eDir').textContent = 'フォルダを開く（ダウンロードで保存）';
 $('bDir').onclick = $('eDir').onclick = openDir;
 $('bFile').onclick = () => $('fileIn').click();
 $('fileIn').onchange = e => { if (e.target.files.length) openFiles([...e.target.files]); e.target.value = ''; };

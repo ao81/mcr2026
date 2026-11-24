@@ -81,6 +81,13 @@ void sp(int accele_l, int accele_r) {
     }
 #endif
 
+#if CURVE_DRIVE_PERCENT != 100
+    static_assert(CURVE_DRIVE_PERCENT > 0 && CURVE_DRIVE_PERCENT <= 100, "CURVE_DRIVE_PERCENT: 1..100");
+    if (pattern >= PT_TRACE && pattern < PT_CROSS_FOUND && fabsf(steer_cmd_deg) >= 5.0f) {
+        if (accele_l > 0) accele_l = accele_l * CURVE_DRIVE_PERCENT / 100;
+        if (accele_r > 0) accele_r = accele_r * CURVE_DRIVE_PERCENT / 100;
+    }
+#endif
     log_raw.ml = accele_l;
     log_raw.mr = accele_r;
 

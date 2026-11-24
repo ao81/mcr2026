@@ -5,11 +5,11 @@
 | 場所 | 内容 |
 |---|---|
 | `basic/` | 走行プログラム（Arduino IDE で `basic/basic.ino` を開く） |
-| `basic/config.h` | 調整する数値と、新しい走行アルゴリズムのスイッチ（`USE_NEW_*`、初期値はすべて 0 = 元の動き） |
+| `basic/config.h` | 調整する数値と、新しい走行アルゴリズムのスイッチ（`USE_NEW_*`、現在の初期値はヘッダー参照） |
 | `basic/tables.h` | センサ値ごとのハンドル角度・モータ値の表 |
 | `basic/speed_model.ino` | 速さの推定と、計算による減速・速さの決め方（新しい走行アルゴリズム） |
 | `basic/planner.ino` | クランク・レーンチェンジの経路の計算と、ピュアパシュート（新しい走行アルゴリズム） |
 | `docs/tuning_guide.md` | 新しい走行アルゴリズムの考え方、実機で測る値、確認と数値調整の手順 |
 | `tools/host_test/` | 元のプログラムと動きが同じかを PC で確かめる道具 |
-| `docs/index.html` | https://ao81.github.io/mcr2026/ で開ける。`basic/config.h`・`debug/dbg_config.h` の数値とスイッチを、説明付きの画面で変えて保存するページ。ブラウザ（Chrome / Edge）で開き「フォルダを開く」で mcr2026 のフォルダを選ぶと、保存した時にファイルを直接書き換える（`debug/config.h` にも同じ内容をコピー） |
+| `docs/index.html` / `tools/config_editor.py` | パラメータ編集・区間デバッグ・CSVによる自動調整。Braveでローカルと同期するには `python tools/config_editor.py` を起動。[手順](debug/README.md)・[Web版](https://ao81.github.io/mcr2026/) |
 | `tools/course_sim/` | コースと車を計算で模擬し、新しい走行アルゴリズムを PC で走らせる道具。`simulator.html` をブラウザで開くと、コース・スイッチ・値を画面で選んで走らせ、動きをアニメーションで見られる |

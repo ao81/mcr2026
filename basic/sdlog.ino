@@ -111,7 +111,8 @@ void log_task(void) {
         }
 
         // 新しい番号でログファイルを作る
-        sprintf(buf, "log%04d.csv", i + 1);
+        run_log_no = i + 1;
+        sprintf(buf, "log%04d.csv", run_log_no);
         microSD = SD.open(buf, FILE_WRITE);
         if (microSD != 0) {
             Serial.print(buf);
@@ -161,6 +162,7 @@ void log_task(void) {
 
     case LOGTASK_CLOSE:
         microSD.close();   // 必ずcloseしないと、ファイルが残らない
+        run_log_closed = true;
         state = LOGTASK_DONE;
         break;
 

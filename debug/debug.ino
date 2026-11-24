@@ -345,6 +345,8 @@ const char* C_DATE = __DATE__;         // ファイルの日付用（コンパ�
 const char* C_TIME = __TIME__;         //               （コンパイルした時刻）
 
 volatile int err_sd;                   // 1: microSDが使えない
+int run_log_no;
+bool run_log_closed;
 volatile int log_st;                   // ログの状態 LOG_NON / LOG_INIT / LOG_WRITE / LOG_CLOSE
 volatile int log_write;                // リングバッファの書き込み位置（割り込み側）
 volatile int log_read;                 // リングバッファの読み出し位置（loop側）
