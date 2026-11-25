@@ -32,6 +32,8 @@ function trialId() { return 1 + crypto.getRandomValues(new Uint32Array(1))[0] % 
 function readTrial() { return JSON.parse(localStorage.getItem(trialStorage) || 'null'); }
 function persistTrial(s) {
   localStorage.setItem(trialStorage,JSON.stringify(s));
+  S.activeTrial = s;
+  renderWorkspace();
   $('trialStatus').textContent = s.message;
 }
 
@@ -295,19 +297,24 @@ function addTrial(csv) {
   }
   persistTrial(s);
 }
+function clearTrial() {
+  localStorage.removeItem(trialStorage);
+  S.activeTrial=null;
+  renderWorkspace();
+}
 function endTrial() {
   const s=readTrial();
   if (!s) throw Error('比較は開始されていません');
   try { checkTrial(s); }
   catch(e) {
     if (!confirm('開いている設定が比較中の値と異なります。ファイルは変更せず、比較記録だけを終了しますか？')) throw e;
-    localStorage.removeItem(trialStorage);
+    clearTrial();
     $('trialStatus').textContent='比較記録を終了しました。車体へ書き込む値を確認してください。';
     return;
   }
   if (s.pending) trialEdit(s.undo);
   stageValues(headerFile('dbg_config.h'),{DBG_TRIAL_ID:0});
-  localStorage.removeItem(trialStorage);
+  clearTrial();
   $('trialStatus').textContent=(s.best?'採用した設定の中央値 '+s.best.ms+' ms。':'基準測定を終了しました。')+'保存・同期し、全体を走るときは basic/basic.ino を書き込んでください。';
 }
 function trialError(e) {
@@ -320,9 +327,16 @@ $('trialStart').onclick=()=>{try { beginTrial(); } catch(e) { trialError(e); }};
 $('trialEnd').onclick=()=>{try { endTrial(); } catch(e) { trialError(e); }};
 $('trialLog').onchange=async e=>{
   const input=e.target;
-  input.disabled=true;
+  S.readingTrials=true;
+  renderWorkspace();
   try { for (const file of input.files) addTrial(await file.text()); }
   catch(err) { trialError(err); }
-  finally { input.value=''; input.disabled=false; }
+  finally { input.value=''; S.readingTrials=false; renderWorkspace(); }
 };
-try { const s=readTrial(); if (s) $('trialStatus').textContent=s.message; } catch(e) { trialError(e); }
+try {
+  S.activeTrial=readTrial();
+  if (S.activeTrial) {
+    $('trialStatus').textContent=S.activeTrial.message;
+    switchWorkspace(true);
+  }
+} catch(e) { trialError(e); }

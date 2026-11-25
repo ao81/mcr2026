@@ -102,6 +102,20 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
   nav { display: none; }
   .item { grid-template-columns: 1fr; }
 }
+[hidden] { display: none !important; }
+.work-tabs { display:flex; gap:.5rem; padding:.6rem 1rem 0; }
+.work-tabs button { border:0; border-bottom:3px solid transparent; border-radius:0; font-weight:600; }
+.work-tabs [aria-selected="true"] { border-color:var(--accent); color:var(--accent); }
+#tabs { flex-wrap:wrap; }
+#session { max-width:52rem; margin:1rem auto; padding:0 1rem 2rem; }
+#session fieldset, .tune-box { margin:0 0 1rem; padding:1rem; border:1px solid var(--line); border-radius:8px; background:var(--panel); min-width:0; }
+#session legend, #session h2 { font-weight:650; font-size:1.05rem; }
+#session h2 { margin:0; }
+#session p { margin:.5rem 0; }
+#session .choices { display:flex; gap:.6rem 1.4rem; flex-wrap:wrap; align-items:center; }
+#session input[type=number] { width:5rem; font:inherit; }
+#session input[type=file] { max-width:100%; display:block; margin:.4rem 0 .8rem; }
+#session output:not(:empty) { display:block; margin:.8rem 0 0; padding:.6rem .8rem; background:var(--accent-bg); border-radius:6px; }
 </style>
 </head>
 <body>
@@ -112,6 +126,7 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
     <button id="bDir" title="リポジトリのフォルダ（mcr2026）を選ぶと、保存した時にファイルを直接書き換えます">フォルダを開く</button>
     <button id="bFile">ファイルを開く</button>
     <button id="bGit">GitHub から読む</button>
+    <button id="reloadDisk" class="hidden">ディスクから再読込</button>
     <span class="src" id="srcInfo"></span>
     <span class="grow"></span>
     <input type="search" id="q" placeholder="名前・説明で探す" size="12">
@@ -119,10 +134,15 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
     <button id="bDiff" disabled>変更を見る</button>
     <button id="bSave" class="primary" disabled>保存</button>
   </div>
+  <div class="work-tabs" role="tablist" aria-label="作業画面">
+    <button id="editTab" role="tab" aria-controls="editPanel" aria-selected="true">設定ファイル</button>
+    <button id="tuneTab" role="tab" aria-controls="session" aria-selected="false" tabindex="-1">走行調整</button>
+  </div>
   <div class="tabs" id="tabs"></div>
   <div class="msg" id="msg"></div>
 </header>
 
+<div id="editPanel" role="tabpanel" aria-labelledby="editTab">
 <div id="empty" class="empty">
   <p>basic/config.h（調整用パラメータ）と debug/dbg_config.h（デバッグモードの設定）を読み込んで編集します。</p>
   <div class="btns">
@@ -134,23 +154,42 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
   Brave では最初に1回だけ、アドレス欄に <code>brave://flags/#file-system-access-api</code> と入れて「Enabled」にし、再起動してください。2回目からは「（フォルダ名）を開く」ボタンで開けます。</p>
 </div>
 
-<section id="session" class="bar hidden">
-  <label>記録区間 <select id="eventType"><option value="1">クランク</option><option value="4">カーブ</option><option value="2">レーンチェンジ</option><option value="5">通常走行</option><option value="6">総合（指定標識まで）</option></select></label>
-  <label><input type="number" id="eventNumber" min="1" max="999" value="1" style="width:4em"> 回目</label>
-  <button id="preset">停止・保存を設定</button>
-  <label class="btn">専用CSVで自動調整 <input type="file" id="readLog" accept=".csv,text/csv"></label>
-  <button id="reloadDisk" class="hidden">ディスクから再読込</button>
-  <button id="trialStart">タイム比較を開始</button>
-  <label class="btn">比較用CSVを追加 <input id="trialLog" type="file" accept=".csv,text/csv" multiple></label>
-  <button id="trialEnd">比較を終了・採用値に戻す</button>
-  <output id="trialStatus" aria-live="polite"></output>
-  <output id="tuneResult" aria-live="polite"></output>
-</section>
 <div class="layout hidden" id="main">
   <nav id="nav"></nav>
   <div id="list"></div>
 </div>
 
+</div>
+<section id="session" role="tabpanel" aria-labelledby="tuneTab" hidden>
+  <p id="tuneSource" role="status"></p>
+  <fieldset><legend>測定する区間</legend>
+    <div class="choices">
+      <label>区間の種類 <select id="eventType"><option value="1">クランク</option><option value="4">カーブ</option><option value="2">レーンチェンジ</option><option value="5">通常走行</option><option value="6">総合</option></select></label>
+      <label><span id="numberLabel">何番目のクランク</span> <input type="number" id="eventNumber" min="1" max="999" value="1" aria-describedby="sectionHint"></label>
+    </div>
+    <p id="sectionHint" aria-live="polite"></p>
+  </fieldset>
+  <fieldset><legend>調整方法</legend><div class="choices">
+    <label><input id="singleMode" name="tuneMethod" type="radio" checked> 1走の記録・診断</label>
+    <label><input id="compareMode" name="tuneMethod" type="radio"> タイム比較（設定ごとに3走）</label>
+  </div></fieldset>
+  <section class="tune-box" id="singlePanel"><h2>1走の記録・診断</h2>
+    <p>「停止・保存を設定」を押し、上部の「保存」で設定を反映してから、Arduino IDEで <code>debug/debug.ino</code> を書き込みます。</p>
+    <button id="preset">停止・保存を設定</button>
+    <p id="singleHint"></p>
+    <label id="singleUpload">専用CSVで自動調整 <input type="file" id="readLog" accept=".csv,text/csv"></label>
+    <output id="tuneResult" aria-live="polite"></output>
+  </section>
+  <section class="tune-box" id="comparePanel" hidden><h2>タイム比較</h2>
+    <p>比較を開始し、上部の「保存」で設定を反映してから <code>debug/debug.ino</code> を書き込みます。同じスタート位置から指定区間を3回走らせます。</p>
+    <button id="trialStart" class="primary">タイム比較を開始</button>
+    <p id="compareHint"></p>
+    <label>比較用CSVを追加 <input id="trialLog" type="file" accept=".csv,text/csv" multiple></label>
+    <output id="trialStatus" aria-live="polite"></output>
+    <p>候補が出たら保存・書き込みを行い、同じ区間を再測定します。終了時は採用値に戻して保存します。</p>
+    <button id="trialEnd">比較を終了・採用値に戻す</button>
+  </section>
+</section>
 <dialog id="dlgGit">
   <div class="dhead"><b>GitHub から読む</b><span class="grow"></span><button class="small" data-close>閉じる</button></div>
   <div class="dbody">
@@ -180,6 +219,9 @@ const S = {
   mode: null,          // 'dir' | 'file' | 'git'
   dir: null,           // フォルダのハンドル（mode=dir）
   files: [],           // { path, text, eol, groups, tokens:Map, edits:Map, handle }
+  workspace: 'edit',
+  activeTrial: null,
+  readingTrials: false,
   cur: 0,
   srcLabel: '',
 };
@@ -400,11 +442,85 @@ function renderTabs() {
   document.querySelectorAll('.tab').forEach(el => el.onclick = () => { S.cur = +el.dataset.i; renderAll(); });
 }
 
+const measureSections = {
+  1: ['クランク','左右を合わせてスタートから数え、指定したクランクを抜けるまでを測ります。','CRK'],
+  2: ['レーンチェンジ','左右を合わせてスタートから数え、指定したレーンチェンジを抜けるまでを測ります。','LANE'],
+  4: ['カーブ','操舵が続いた区間をスタートから数え、指定したカーブから直進に戻るまでを測ります。','CURV'],
+  5: ['標識','クロスラインとハーフラインを合わせて数えます。直前の特殊区間の出口から指定標識までを測ります。最初の標識ならスタートからです。','TRCE'],
+  6: ['標識','クロスラインとハーフラインを合わせて数え、スタートから指定標識までの総合タイムを測ります。','FULL']
+};
+function renderWorkspace() {
+  const tuning = S.workspace === 'tune';
+  for (const [id,selected] of [['editTab',!tuning],['tuneTab',tuning]]) {
+    $(id).setAttribute('aria-selected',String(selected));
+    $(id).tabIndex = selected ? 0 : -1;
+  }
+  $('session').hidden = !tuning;
+  $('editPanel').hidden = tuning;
+  $('tabs').hidden = tuning;
+  $('q').hidden = tuning;
+  $('onlyChg').parentElement.hidden = tuning;
+  if (!tuning) return;
+  const active = S.activeTrial;
+  if (active) {
+    $('compareMode').checked = true;
+    $('eventType').value = active.target;
+    $('eventNumber').value = active.number;
+  }
+  const comparing = $('compareMode').checked;
+  const [kind,help,prefix] = measureSections[$('eventType').value];
+  const singleDiagnosis = ['1','2','4'].includes($('eventType').value);
+  const needed = comparing ? ['config.h','dbg_config.h','tables.h'] : ['config.h','dbg_config.h'];
+  const missing = needed.filter(name => !headerFile(name));
+  $('tuneSource').hidden = !missing.length;
+  $('tuneSource').textContent = missing.length ? '上部の「フォルダを開く」で mcr2026 を選んでください。必要なファイル：'+missing.join('、') : '';
+  $('singleMode').disabled = !!active;
+  $('eventType').disabled = $('eventNumber').disabled = !!active;
+  $('numberLabel').textContent = '何番目の'+kind;
+  $('sectionHint').textContent = help+' 1 は最初の'+kind+'です。';
+  $('singlePanel').hidden = comparing;
+  $('comparePanel').hidden = !comparing;
+  $('singleHint').textContent = singleDiagnosis ? '走行後、microSDの '+prefix+'NNNN.csv を1本読み込むと調整候補を表示します。' : 'この区間の '+prefix+'NNNN.csv を使って設定を調整するには、測定前に「タイム比較」を選んでください。';
+  $('singleUpload').hidden = !singleDiagnosis;
+  const candidates = {
+    1:'進入速度、ブレーキ、旋回や復帰の設定',
+    2:'車線変更への進入速度、制動、操舵や復帰の設定',
+    4:'カーブの駆動倍率、速度段階、操舵角や左右モーター出力',
+    5:'速度段階の切替時間、操舵角や左右モーター出力',
+    6:'通常走行と、基準ログに現れたクランク・車線変更などの設定'
+  };
+  $('compareHint').textContent = '比較する候補は、'+candidates[$('eventType').value]+'などです。'+prefix+'NNNN.csv を1本ずつ、または同じ設定の3本をまとめて追加してください。';
+  $('preset').disabled = !!missing.length;
+  $('readLog').disabled = !headerFile('config.h');
+  $('trialStart').disabled = !!missing.length;
+  $('trialStart').textContent = active ? '比較を再開・設定を確認' : 'タイム比較を開始';
+  $('trialLog').disabled = !!missing.length || !active || S.readingTrials;
+  $('trialEnd').disabled = !active || S.readingTrials;
+}
+function switchWorkspace(tuning) {
+  S.workspace = tuning ? 'tune' : 'edit';
+  renderAll();
+}
+for (const [id,tuning] of [['editTab',false],['tuneTab',true]]) {
+  $(id).onclick = () => switchWorkspace(tuning);
+  $(id).onkeydown = e => {
+    if (!['ArrowRight','ArrowLeft','Home','End'].includes(e.key)) return;
+    e.preventDefault();
+    const target = e.key === 'End' || (e.key !== 'Home' && !tuning);
+    switchWorkspace(target);
+    $(target ? 'tuneTab' : 'editTab').focus();
+  };
+}
+for (const id of ['eventType','eventNumber','singleMode','compareMode']) $(id).onchange = () => {
+  $('tuneResult').textContent = '';
+  renderWorkspace();
+};
+
 function renderAll() {
+  renderWorkspace();
   $('empty').classList.toggle('hidden', S.files.length > 0);
   $('main').classList.toggle('hidden', S.files.length === 0);
   $('srcInfo').textContent = S.srcLabel;
-  $('session').classList.toggle('hidden', !S.files.length);
   $('reloadDisk').classList.toggle('hidden', S.mode !== 'local');
   renderTabs();
   const f = S.files[S.cur]; if (!f) return;
@@ -857,9 +973,12 @@ function parseDebugCsv(csv) {
   return {rows, params, flags, meta};
 }
 
-function tuneLog(csv, cfg) {
+function tuneLog(csv, cfg, selection) {
   const {rows, params, flags, meta} = parseDebugCsv(csv);
   const fail = message => { throw Error(message); };
+  if (selection && (meta.target !== selection.target || meta.target_no !== selection.number)) {
+    fail('CSVの測定区間と画面の指定が違います。区間の種類と何番目かを確認してください。');
+  }
   if (meta.target === 5 || meta.target === 6) fail('通常走行・総合は「タイム比較を開始」して比較用CSVを追加してください');
   // クランク・レーンチェンジの途中でコースアウトなどで止まった（reason 2）ログも、区間の始まりが入っていれば使う
   // （はみ出したこと自体が「速すぎた」証拠になる。ブレーキを早める側にだけ調整する）
@@ -1041,7 +1160,7 @@ $('readLog').onchange = async e => {
   const file = e.target.files[0]; if (!file) return;
   try {
     const cfg = headerFile('config.h');
-    const result = tuneLog(await file.text(),cfg);
+    const result = tuneLog(await file.text(),cfg,{target:Number($('eventType').value),number:Number($('eventNumber').value)});
     if (result.changes.length) stageValues(cfg, Object.fromEntries(result.changes.map(c => [c.name, c.next])));
     $('tuneResult').textContent = result.detail + '。' +
       (result.changes.length ? result.changes.map(c => c.name + ' ' + c.old + ' → ' + c.next).join('、') + '（保存で反映）' : '値はそのままでよい範囲です') +
