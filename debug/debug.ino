@@ -324,6 +324,7 @@ volatile float crank_yaw;              // USE_NEW_CRANK_QUICK：曲がり始め�
 volatile int crank_measuring;           // USE_NEW_CRANK_QUICK：1 なら曲がり角の線の通過時間を測っている
 volatile int crank_unwind;             // USE_NEW_CRANK_QUICK：1 ならハンドルを戻し始めた
 volatile float crank_unwind_m;         // USE_NEW_CRANK_QUICK：ハンドルを戻し始めた所の dist_m
+float crank_app_mps;                  // USE_NEW_CRANK_ANY_COURSE：曲がり角の線を見てからブレーキをかけても間に合う一番速い速さ [m/s]（0 は計算できなかった）
 float crank_extra_m;                   // クランクの線を見つけてから円弧に入るまでに進む距離 [m]（USE_NEW_BRAKE_RANGE）
 float lane_extra_m;                    // 中央線の切れ目を見つけてからS字に入るまでに進む距離 [m]（同上）
 // これから来るクランク・レーンチェンジの寸法（speed_model.ino の crank_spot_select / lane_spot_select で決める）

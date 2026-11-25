@@ -134,6 +134,11 @@ const int LANE_RAMP[LANE_STEPS] = {
 #define USE_NEW_LANE_WIDTH_INTERVAL  0   // ハーフライン通過時、1msの測定誤差で説明できる速度のずれを除いて補正する
 #define USE_NEW_LANE_DISTANCE        1   // S字進入前、標識から中央線の切れ目までの距離で推定速度を補正する（USE_NEW_LANE_STEER と併用）
                                          //   2026-11-24 から 1：模擬で、線が見える幅が LINE_SEEN_EXTRA_M より 4mm 狭いときの失敗が 3/7 → 0/7 になった
+#define USE_NEW_CRANK_ANY_COURSE     1   // クランクを、コースの寸法（クロスラインの幅、クロスラインから曲がり角までの距離）を使わずに走る（USE_NEW_CRANK_QUICK と一緒に使う）
+                                         //   クロスラインは「この先にクランクがある」という目印にだけ使い、通過時間で速さを測らない。
+                                         //   クロスラインを過ぎたら crank_app_mps（planner.ino の plan_setup で計算。曲がり角の線を見てからブレーキをかけても間に合う一番速い速さ）まで
+                                         //   すぐに落とし、そのまま曲がり角の線まで走る。曲がり角の線（中央線＝規則で幅 20mm）で速さを測り直し、そこから曲がる。
+                                         //   センサが後輪より 0.46m 前にあるので、この車では crank_app_mps が出力100%の速さより速く、ブレーキは曲がり角の線を見てからだけになる
 #define USE_NEW_LANE_DOWN_ONLY       0   // 距離による補正を推定速度が下がる場合だけに限る（USE_NEW_LANE_DISTANCE と併用）
 
 //========================================

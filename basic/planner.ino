@@ -362,6 +362,26 @@ void plan_setup(void) {
 #endif
     (void)r; (void)len; (void)wait;
 
+    // USE_NEW_CRANK_ANY_COURSE：曲がり角の線を見つけた時に、この速さ以下なら、そこからのブレーキで円弧に入る速さまで落とせる。
+    //   crank_start_arc と同じ判断（線を見つけてから円弧に入るまでに進む距離 pre_turn_m の間、GRIP_LONG_USE で減速）を、
+    //   CRANK_BRAKE_MARGIN_M の余裕を残して満たす一番速い速さを、二分法で探す
+    crank_app_mps = 0.0f;
+#if USE_NEW_CRANK_ANY_COURSE && USE_NEW_CRANK_QUICK
+    if (crank_q_r > 0.0f) {
+        float rq, wq;
+        if (crank_plan(corner_speed(1.0f / crank_q_r), &rq, &wq)) {
+            float vt = corner_speed(1.0f / rq);
+            float lo = vt, hi = V_MAX_MPS * 3.0f;
+            for (int i = 0; i < 30; i++) {
+                float mid = (lo + hi) * 0.5f;
+                float d = pre_turn_m(mid, rq, wq) - CRANK_BRAKE_MARGIN_M;
+                if (d > 0.0f && speed_after_brake(mid, d) <= vt) lo = mid; else hi = mid;
+            }
+            crank_app_mps = lo;
+        }
+    }
+#endif
+
     // TRACE_SAFE_RADIUS_M：この半径のカーブが急に来ても間に合う直線の速さ
     //   センサは後輪の SENSOR_TO_REAR_AXLE_M 前にある。線がセンサのきざみの半分（e）だけ動いたら曲がりに気づけるとすると、
     //   気づくのはセンサがカーブに √(2·R·e) 入った時。そこから後輪がカーブに着くまでの距離 d で、曲がれる速さまで落とせる速さ
