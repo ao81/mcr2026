@@ -197,7 +197,6 @@ bool crank_start_arc(bool right) {
     crank_unwind = 0;
     crank_unwind_m = 0.0f;
     crank_measuring = 1;
-    crank_dark_seen = 0;
     led_out(right ? 0x2 : 0x1);
     cnt1 = 0;
     pattern = right ? PT_CRANK_R_ARC : PT_CRANK_L_ARC;
@@ -241,10 +240,7 @@ void run_crank_arc(bool right) {
     // 曲がり角の線を通り過ぎた後、曲がり始めるまでは、センサの前に白い線はないはず。
     // それでも何か見えたら、思ったより先まで進んでいる（速さを少なく見積もっている）ので、すぐ曲がり始める
     //   CRK0056：曲がり角の線の 5〜8cm 先で 11111111 を見たのに、そのまま 13cm 直進してから曲がり、曲がりきれなかった
-    //   CRK0072/0074：測り終えた直後の 1〜2ms は、曲がり角の線の端（00011000 など）がまだ見えていて、
-    //   それを床と見て 3cm で曲がり始めていた。測り終えた後に一度 00000000 を見てから、この判断を始める
-    if (!crank_measuring && c == 0x00) crank_dark_seen = 1;
-    if (s < 0.0f && crank_dark_seen && c != 0x00) {
+    if (s < 0.0f && !crank_measuring && c != 0x00) {
         plan_wait_m = dist_m;
         s = 0.0f;
     }
