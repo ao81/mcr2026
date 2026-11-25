@@ -20,6 +20,9 @@
 //   3 : 時間で指定（スタートから DBG_FROM_MS 〜 DBG_TO_MS）
 #define DBG_AUTO_STOP     0     // 1: 区間終了で車体を停止し、専用CSVを自動保存
 // 4 : カーブ（操舵の継続で検出）
+// 5 : 直前の特殊区間の出口から指定標識まで（最初はスタートから）
+// 6 : スタートから指定標識までの総合タイム
+#define DBG_TRIAL_ID      0UL   // タイム比較画面が設定ごとに発行する番号
 #define DBG_TARGET        1
 #define DBG_TARGET_NO     1     // 何回目の区間を記録するか（1 = スタートして最初のクランク）。0 なら止まるまで記録し続け、最後の DBG_SAMPLES 個を残す
 #define DBG_FROM_MS       0     // DBG_TARGET 3 のとき：記録を始める時間 [ms]

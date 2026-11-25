@@ -7,7 +7,7 @@
 //**************************************************************************
 #if DBG_ENABLE
 static_assert(DBG_INTERVAL_MS >= 1 && DBG_SAMPLES > 0, "debug interval and samples must be positive");
-static_assert(DBG_TARGET >= 1 && DBG_TARGET <= 4, "unknown debug target");
+static_assert(DBG_TARGET >= 1 && DBG_TARGET <= 6, "unknown debug target");
 static_assert(DBG_TARGET != 3 || DBG_TO_MS > DBG_FROM_MS, "empty time window");
 static_assert(!DBG_AUTO_STOP || DBG_TARGET == 3 || DBG_TARGET_NO >= 1, "select a numbered event");
 
@@ -39,6 +39,19 @@ static volatile unsigned long dbg_trigger_ms;  // 記録したい区間に入っ
 static volatile unsigned long dbg_end_ms;      // その区間を出た時間 [ms]（0 はまだ）
 static volatile unsigned long dbg_stop_ms;     // 記録を止めた時間 [ms]
 static volatile int dbg_written;          // 1: microSD に書き終えた
+
+// 同じ標識列とDIPで走ったCSVだけを比較する。仮判定中のハーフラインは数えない。
+static uint32_t dbg_route = 2166136261u;
+static int dbg_dip = -1;
+static int dbg_previous = PT_WAIT_START;
+static unsigned long dbg_trace_start;
+
+static int dbg_marker(int p) {
+    if (p == PT_CROSS_BRAKE) return 1;
+    if (p >= PT_LANE_R_APPROACH && p < PT_LANE_R_APPROACH + LANE_STAGES) return 2;
+    if (p >= PT_LANE_L_APPROACH && p < PT_LANE_L_APPROACH + LANE_STAGES) return 3;
+    return 0;
+}
 
 // 区間に入った時・出た時の値（書き出す時にファイルの先頭へ）
 static float dbg_p_cross_to, dbg_p_cross_w, dbg_p_crank_entry, dbg_p_crank_extra;
@@ -128,17 +141,42 @@ void dbg_sample(void) {
     const int p = pattern;
     if (p < PT_TRACE) return;                    // スタート前は記録しない
 
+    if (dbg_dip < 0) dbg_dip = dipsw_get();
+    int marker = dbg_marker(p);
+    if (marker && marker != dbg_marker(dbg_previous)) {
+        dbg_route = (dbg_route ^ (uint32_t)marker) * 16777619u;
+    }
+    // クロスラインの後に実際に入ったクランクの左右も区別する。
+    if (p != dbg_previous && (p == PT_CRANK_L_ENTER || p == PT_CRANK_R_ENTER ||
+        p == PT_CRANK_L_ARC || p == PT_CRANK_R_ARC) &&
+        dbg_previous >= PT_CROSS_FOUND && dbg_previous <= PT_CRANK_SEARCH) {
+        dbg_route = (dbg_route ^ (uint32_t)(p < PT_CRANK_R_ENTER ? 4 : 5)) * 16777619u;
+    }
+#if DBG_TARGET == 5 || DBG_TARGET == 6
+    if (p < PT_CROSS_FOUND && dbg_previous >= PT_CROSS_FOUND) dbg_trace_start = cnt_start;
+    if (marker && marker != dbg_marker(dbg_previous)) {
+        ++dbg_events;
+        if (!DBG_TARGET_NO || dbg_events == DBG_TARGET_NO) {
+            dbg_trigger_ms = DBG_TARGET == 5 ? dbg_trace_start : 0;
+            dbg_end_ms = cnt_start;
+            dbg_take_params_in();
+        }
+    }
+#else
     // 選んだ区間に入った・出たの判断
     const bool ev = dbg_is_event(p);
     if (ev && !dbg_in_event) {
         dbg_in_event = 1;
         dbg_events++;
+#if DBG_TARGET == 4
+        dbg_route = (dbg_route ^ (uint32_t)(servo_est_deg >= 0.0f ? 6 : 7)) * 16777619u;
+#endif
         if (DBG_TARGET_NO == 0 || dbg_events == DBG_TARGET_NO) {
             dbg_trigger_ms = cnt_start;
             dbg_end_ms = 0;
             dbg_take_params_in();
         }
-    } else if (!ev && dbg_in_event) {
+    } else if (!ev && dbg_in_event && p < PT_STOP) {
         dbg_in_event = 0;
 #if DBG_TARGET != 3
         // ハーフラインの仮判定がクロスに訂正された場合などは完走として数えない。
@@ -150,6 +188,8 @@ void dbg_sample(void) {
         if (DBG_TARGET_NO == 0 || dbg_events == DBG_TARGET_NO) dbg_end_ms = cnt_start;
     }
 
+#endif
+    dbg_previous = p;
     if (cnt_start % DBG_INTERVAL_MS == 0) {
         dbg_t& e = dbg_buf[dbg_head];
         e.t = (uint16_t)cnt_start;
@@ -197,7 +237,7 @@ static void dbg_fmt_f(char* out, int size, float x) {
 static int dbg_header_line(int n, char* buf, int size) {
     char a[16];
     switch (n) {
-    case 0: snprintf(buf, size, "#dbg,1"); return 1;
+    case 0: snprintf(buf, size, "#dbg,1,trial,%lu,run,%d,dip,%d,route,%lu", (unsigned long)DBG_TRIAL_ID, run_log_no, dbg_dip, (unsigned long)dbg_route); return 1;
     case 1: snprintf(buf, size, "#target,%d,target_no,%d,interval_ms,%d,samples,%d,post_ms,%d",
                      DBG_TARGET, DBG_TARGET_NO, DBG_INTERVAL_MS, DBG_SAMPLES, DBG_POST_MS); return 1;
     case 2: snprintf(buf, size, "#reason,%d,events,%d,trigger_ms,%lu,end_ms,%lu",
@@ -282,7 +322,7 @@ void dbg_task(void) {
     char buf[200];
     char name[16];
 #if DBG_AUTO_STOP
-    static const char* const prefix[] = {"", "CRK", "LANE", "TIME", "CURV"};
+    static const char* const prefix[] = {"", "CRK", "LANE", "TIME", "CURV", "TRCE", "FULL"};
     snprintf(name, sizeof(name), "%s%04d.csv", prefix[DBG_TARGET], no);
 #else
     snprintf(name, sizeof(name), "dbg%04d.csv", no);

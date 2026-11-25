@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EDITABLE = ("basic/config.h", "debug/dbg_config.h")
+EDITABLE = ("basic/config.h", "basic/tables.h", "debug/dbg_config.h")
 OWN = {"dbglog.ino", "dbg_config.h"}
 HOOKS = (
     ('#include "config.h"', '#include "dbg_config.h"       // デバッグモードの設定（debug/ だけ）\nvoid dbg_sample(void);           // dbglog.ino\nvoid dbg_task(void);             // dbglog.ino'),
@@ -119,6 +119,8 @@ class Editor(BaseHTTPRequestHandler):
             return self.reply(403, {})
         if self.path == "/":
             return self.reply(200, (ROOT / "docs/index.html").read_bytes(), "text/html")
+        if self.path == "/trial.js":
+            return self.reply(200, (ROOT / "docs/trial.js").read_bytes(), "text/javascript")
         if self.path == "/api/config":
             try:
                 return self.reply(200, state(snapshot()))
