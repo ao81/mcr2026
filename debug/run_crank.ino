@@ -34,6 +34,8 @@ void run_cross_pass(void) {
     if (line_pass_state == PASS_DONE) {
 #if !USE_NEW_CRANK_ANY_COURSE
         speed_measure_by_line(crank_line_w_m, line_pass_ms);   // 通過時間から速さを測り直す（ANY_COURSE では幅が分からないので測らない）
+#elif USE_NEW_VMAX_LEARN
+        cross_line_vmax_observe(line_pass_ms);                   // 幅は分からないが、あり得る幅の範囲で大まかな速さを測り、v_max の見当を直す
 #endif
         reset_distance();                                          // ここからクランクまでの距離を数える
         line_pass_state = PASS_WAIT;
@@ -271,6 +273,13 @@ void run_crank_arc(bool right) {
             // 減速の後は推定が大きくずれていることがあるので、クロスラインのとき（0.6〜1.67倍）より広く受け付ける。
             // それより大きく違うときは測り間違いとみて使わない
             if (vm > speed_mps * 0.4f && vm < speed_mps * 2.5f) {
+#if USE_NEW_VMAX_LEARN
+                // 出力100%の速さ v_max_mps も、この測定で直す（ブレーキの後に一定の出力で走っていれば、差の分だけ v_max がずれている）
+                float rq = 0.41f / (cnt1 + LINE_PASS_OFFSET_MS);
+                vmax_observe(vm, sqrtf(rq * rq + LINE_WIDTH_SD * LINE_WIDTH_SD));
+                vmax_sens = 0.0f;                  // 速さはこの測定の値にする（曲がり始めの計算は今までどおり測った速さで行う）
+                speed_err_sd = vm * LINE_WIDTH_SD;
+#endif
                 speed_mps = vm;
                 dist_m = wl;
                 float r, wait;
