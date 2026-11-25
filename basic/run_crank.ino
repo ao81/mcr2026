@@ -191,6 +191,7 @@ bool crank_start_arc(bool right) {
     reset_distance();                              // ここから距離を数える
     crank_yaw = 0.0f;
     crank_unwind = 0;
+    crank_unwind_m = 0.0f;
     crank_measuring = 1;
     led_out(right ? 0x2 : 0x1);
     cnt1 = 0;
@@ -247,7 +248,10 @@ void run_crank_arc(bool right) {
     crank_yaw = crank_yaw + speed_mps * 0.001f * fabsf(curvature_of_angle(servo_est_deg));
     // 今ハンドルを戻し始めても、戻りきるまでに向きはさらに変わる。その分を足して 90°になったら戻し始める
     // （90°を過ぎてから戻すと、行き過ぎた向きを直すのに時間がかかる）
-    if (!crank_unwind && crank_yaw + crank_unwind_yaw(speed_mps, servo_est_deg) >= PI_F * 0.5f) crank_unwind = 1;
+    if (!crank_unwind && crank_yaw + crank_unwind_yaw(speed_mps, servo_est_deg) >= PI_F * 0.5f) {
+        crank_unwind = 1;
+        crank_unwind_m = dist_m;
+    }
     if (!crank_unwind) {
         ha_deg(dir * plan_angle);                  // ② 円弧
         drive_at(plan_speed_mps, dir * plan_angle);
@@ -263,7 +267,14 @@ void run_crank_arc(bool right) {
         pattern = PT_TRACE;                        // 線が見えた → 通常走行
         return;
     }
-    if (crank_yaw > PI_F * 0.75f) {                // 向きが変わりすぎても線が見えない → 元の復帰処理
+    // 次のどれかなら、元の復帰処理（線の見えない側＝曲がる側へハンドルを切って線を探す）へ移る
+    //   ・向きが変わりすぎても線が見えない
+    //   ・ハンドルが戻りきった後に、曲がる側の端のセンサ1つだけが線を見た（曲がり始めが遅れ、新しい線を少し通り越した）
+    //     ※ うまく曲がれたときも、ハンドルを戻している途中にこの形が一瞬見えるので、戻りきるまでは使わない
+    //   ・ハンドルを戻し始めてから CRANK_EXIT_SEARCH_M 進んでも線が見えない
+    //     （ハンドルが 0°のままなので crank_yaw は増えず、上の条件だけでは全開の直進が止まらない。FULL0053）
+    bool edge = fabsf(servo_est_deg) < 1.0f && c == (right ? 0x01 : 0x80);
+    if (crank_yaw > PI_F * 0.75f || edge || dist_m - crank_unwind_m >= CRANK_EXIT_SEARCH_M) {
         cnt1 = 0;
         pattern = right ? PT_CRANK_R_RETURN : PT_CRANK_L_RETURN;
     }
