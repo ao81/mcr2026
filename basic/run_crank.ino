@@ -246,6 +246,9 @@ void run_crank_arc(bool right) {
                 float vq = corner_speed(1.0f / crank_q_r);
                 if (crank_plan(vq, &r, &wait)) plan_wait_m = wait;
             }
+            // 実車では、曲がり角の線を通り過ぎてすぐ曲がり始めた回だけうまく曲がれた（CRK0085・0072・0074 は約 0.03m、
+            // 計算どおり 0.11〜0.13m 待った CRK0080・0081・0086 は外側の端に着いてしまった）。待つ距離に上限を付ける
+            if (CRANK_WAIT_MAX_M >= 0.0f && plan_wait_m > CRANK_WAIT_MAX_M) plan_wait_m = CRANK_WAIT_MAX_M;
         }
     }
 #endif
