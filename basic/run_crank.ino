@@ -234,6 +234,15 @@ void run_crank_arc(bool right) {
     }
 #endif
     float s = dist_m - plan_wait_m;                // 円弧に入ってからの距離
+#if USE_NEW_CRANK_QUICK
+    // 曲がり角の線を通り過ぎた後、曲がり始めるまでは、センサの前に白い線はないはず。
+    // それでも何か見えたら、思ったより先まで進んでいる（速さを少なく見積もっている）ので、すぐ曲がり始める
+    //   CRK0056：曲がり角の線の 5〜8cm 先で 11111111 を見たのに、そのまま 13cm 直進してから曲がり、曲がりきれなかった
+    if (s < 0.0f && !crank_measuring && c != 0x00) {
+        plan_wait_m = dist_m;
+        s = 0.0f;
+    }
+#endif
 
     if (s < 0.0f) {                                // ① まだ曲がり始めない
         ha(0);
