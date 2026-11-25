@@ -155,6 +155,12 @@ void run_crank_return(bool right) {
 //**********************************************************************
 // pattern 121 / 161 : 曲がり切れず外側にはみ出した時（外輪を逆転させて戻る）
 //**********************************************************************
+static int bit_count4(unsigned char m) {
+    int n = 0;
+    for (; m; m &= (unsigned char)(m - 1)) n++;
+    return n;
+}
+
 void run_crank_outside(bool right) {
     ha(right ? CRANK_ANGLE : -CRANK_ANGLE);
     unsigned char c = sensor_inp(MASK4_4);
@@ -165,7 +171,9 @@ void run_crank_outside(bool right) {
     }
     // 真ん中の2つのセンサのどちらかが線を見て、外側の端のセンサ（右クランクなら左端）が白でなければ、中央線の上に来ているので通常走行へ。
     //   CRK0081：00010111 で中央線を見たのに、この表に形がないので 55° のまま曲がり続けた
-    if ((c & 0x18) != 0 && (c & (right ? 0x80 : 0x01)) == 0) {
+    //   CRK0088：01111100（コースの外の白い床が広く見えている）でも通常走行に移ったので、外側の2つが白でないこと、
+    //   真ん中の4つのうち白は3つまで（線の太さ）であることも条件にする
+    if ((c & 0x18) != 0 && (c & (right ? 0xc0 : 0x03)) == 0 && bit_count4(c & 0x3c) <= 3) {
         led_out(0x0);
         cnt1 = 0;
         line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;   // 斜めの中央線をハーフラインと見間違えない（CRK0086）
