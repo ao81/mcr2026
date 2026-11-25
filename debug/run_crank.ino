@@ -126,6 +126,24 @@ void run_crank_slow(bool right) {
 }
 
 //**********************************************************************
+// 円弧（152 / 112）から 161 / 121 に移った後も、車の向きが変わった角度を積み上げる。
+// （161 / 121 はハンドルをいつも CRANK_ANGLE まで切るので、角度は必ず増え、ここで止まったままにはならない）
+// 向きがまだ CRANK_EXIT_MIN_YAW_DEG まで変わっていなければ false（中央線が見えても通常走行へ移らない）
+//   CRK0099：2つ目のクランクで、向きが 44°ほどしか変わっていないのに 161 で 00111000 を見て通常走行に移った。
+//   通常走行は線が左にあるので左へハンドルを切り、線は右へ流れて見えなくなり、コースから出た。
+//   うまく曲がれた CRK0095・CRK0100 は、通常走行に移ったときに 93°・105° 変わっていた
+//**********************************************************************
+static bool crank_turned_enough() {
+#if USE_NEW_CRANK_QUICK
+    if (!crank_yaw_track) return true;             // 円弧で曲がり始めていない（元の方法）ときは今までどおり
+    crank_yaw = crank_yaw + speed_mps * 0.001f * fabsf(curvature_of_angle(servo_est_deg));
+    return crank_yaw >= CRANK_EXIT_MIN_YAW_DEG * DEG_TO_RAD_F;
+#else
+    return true;
+#endif
+}
+
+//**********************************************************************
 // pattern 120 / 160 : 中央線を見失った後の復帰
 //**********************************************************************
 void run_crank_return(bool right) {
@@ -142,6 +160,7 @@ void run_crank_return(bool right) {
               : (c == 0x60 || c == 0x70 || c == 0x30 || c == 0x18 || c == 0x08 || c == 0x10 || c == 0x38)) {
         led_out(0x0);
         cnt1 = 0;
+        crank_yaw_track = 0;
         line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;   // 斜めの中央線をハーフラインと見間違えない（CRK0086・0096）
         pattern = PT_TRACE;
         return;
@@ -164,6 +183,7 @@ static int bit_count4(unsigned char m) {
 void run_crank_outside(bool right) {
     ha(right ? CRANK_ANGLE : -CRANK_ANGLE);
     unsigned char c = sensor_inp(MASK4_4);
+    bool turned = crank_turned_enough();
     if (right) {
         apply_table(CRANK_R_OUTSIDE_SENSOR, CRANK_R_OUTSIDE_ACT, CRANK_R_OUTSIDE_N, c);
     } else {
@@ -173,9 +193,11 @@ void run_crank_outside(bool right) {
     //   CRK0081：00010111 で中央線を見たのに、この表に形がないので 55° のまま曲がり続けた
     //   CRK0088・0096：01111100（コースの外の白い床が広く見えている）でも通常走行に移り、左ハーフラインと見てレーンチェンジに入った。
     //   外側の2つが白でないこと、真ん中の4つのうち白は3つまで（線の太さ）であることも条件にする
-    if ((c & 0x18) != 0 && (c & (right ? 0xc0 : 0x03)) == 0 && bit_count4(c & 0x3c) <= 3) {
+    //   向きがまだ十分に変わっていないときは移らず、ハンドルを切ったまま曲がり続ける（CRK0099）
+    if (turned && (c & 0x18) != 0 && (c & (right ? 0xc0 : 0x03)) == 0 && bit_count4(c & 0x3c) <= 3) {
         led_out(0x0);
         cnt1 = 0;
+        crank_yaw_track = 0;
         line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;   // 斜めの中央線をハーフラインと見間違えない（CRK0086・0096）
         pattern = PT_TRACE;
         return;
@@ -216,6 +238,7 @@ bool crank_start_arc(bool right) {
     plan_angle = angle_for_radius(r);
     reset_distance();                              // ここから距離を数える
     crank_yaw = 0.0f;
+    crank_yaw_track = 1;
     crank_unwind = 0;
     crank_unwind_m = 0.0f;
     crank_measuring = 1;
@@ -298,6 +321,7 @@ void run_crank_arc(bool right) {
     if (find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
         led_out(0x0);
         cnt1 = 0;
+        crank_yaw_track = 0;
         line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;
         pattern = PT_TRACE;                        // 線が見えた → 通常走行
         return;
@@ -321,6 +345,7 @@ void run_crank_arc(bool right) {
         if (found) {
             led_out(0x0);
             cnt1 = 0;
+            crank_yaw_track = 0;
             line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;
             pattern = PT_TRACE;
             return;
@@ -337,6 +362,7 @@ void run_crank_arc(bool right) {
     if (find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
         led_out(0x0);
         cnt1 = 0;
+        crank_yaw_track = 0;
         line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;
         pattern = PT_TRACE;                        // 線が見えた → 通常走行
         return;

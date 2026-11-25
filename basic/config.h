@@ -299,6 +299,7 @@ const int COURSE_START_ROWS[] = {
 #define CRANK_TURN_EARLY_M      0.010f  // USE_NEW_CRANK_QUICK：曲がり始めてよい範囲（幅 CRANK_QUICK_WINDOW_M）の真ん中から、この距離 [m] だけ早く曲がり始める
                                         //   実車のログ（FULL0053・CRK0056・CRK0057）は、どれも曲がるのが遅れて外へ出ていた。範囲の早い側の端は超えない
 #define CRANK_UNWIND_EARLY_DEG  10.0f   // USE_NEW_CRANK_QUICK：クランクで曲がっている途中、ハンドルを戻し始める（反対側へ切り返し始める）のを、計算より何度早くするか [度]
+#define CRANK_EXIT_MIN_YAW_DEG  70.0f   // USE_NEW_CRANK_QUICK：はみ出して外輪を逆転させて戻るとき（160 / 161）、車の向きがこの角度 [度] 以上変わるまでは、中央線が見えても通常走行へ移らない（CRK0099。うまく曲がれたときは 93〜105°）
                                         //   向きが 90° − この値 になるとハンドルを戻し始める。曲がりすぎるなら大きく、曲がり足りないなら小さくする
                                         //   ao 2026-11-25：右クランクの後、左に戻し始めるのが遅い
 #define CRANK_QUICK_WINDOW_M    0.035f  // 大きくすると曲がり始めの位置のずれに強くなるが遅くなる（車の値が config.h どおりなら 0.035 ほどが上限）

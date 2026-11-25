@@ -319,6 +319,7 @@ float crank_q_d;                       // USE_NEW_CRANK_QUICK：曲がり始め�
 float crank_q_dlo;                     // USE_NEW_CRANK_QUICK：その距離の下限（これより奥まで進んでから曲がると外へ出る）
 volatile float crank_yaw;              // USE_NEW_CRANK_QUICK：曲がり始めてから車の向きが変わった角度の推定 [rad]
 volatile int crank_measuring;           // USE_NEW_CRANK_QUICK：1 なら曲がり角の線の通過時間を測っている
+volatile int crank_yaw_track;          // USE_NEW_CRANK_QUICK：1 なら円弧で曲がり始めたので、160 / 161 でも crank_yaw を積み上げる
 volatile int crank_unwind;             // USE_NEW_CRANK_QUICK：1 ならハンドルを戻し始めた
 volatile float crank_unwind_m;         // USE_NEW_CRANK_QUICK：ハンドルを戻し始めた所の dist_m
 float crank_app_mps;                  // USE_NEW_CRANK_ANY_COURSE：曲がり角の線を見てからブレーキをかけても間に合う一番速い速さ [m/s]（0 は計算できなかった）
