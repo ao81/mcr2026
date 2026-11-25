@@ -271,7 +271,7 @@ static int dbg_header_line(int n, char* buf, int size) {
         "LANE_BRAKE_POWER", "LANE_BRAKE_MARGIN_M", "SENSOR_TO_REAR_AXLE_M", "WHEELBASE_M",
         "crank_to_m", "crank_line_w_m", "crank_entry_mps", "crank_extra_m", "crank_q_r", "crank_q_d", "crank_q_dlo",
         "lane_to_m", "lane_line_w_m", "lane_entry_mps", "lane_extra_m",
-        "vmax_at_trigger", "vmax_at_end", "plan_wait_m", "plan_len_m", "plan_speed_mps", "plan_angle", "spot_no"
+        "vmax_at_trigger", "vmax_at_end", "plan_wait_m", "plan_len_m", "plan_speed_mps", "plan_angle", "spot_no", "crank_seen_w"
     };
     const float vals[] = {
         (float)CURVE_DRIVE_PERCENT, V_MAX_MPS, MOTOR_TAU_S, GRIP_LAT_MPS2, GRIP_LONG_MPS2, PLAN_GRIP_RATIO_LAT, PLAN_GRIP_RATIO_LONG,
@@ -279,7 +279,7 @@ static int dbg_header_line(int n, char* buf, int size) {
         (float)LANE_BRAKE_POWER, LANE_BRAKE_MARGIN_M, SENSOR_TO_REAR_AXLE_M, WHEELBASE_M,
         dbg_p_cross_to, dbg_p_cross_w, dbg_p_crank_entry, dbg_p_crank_extra, crank_q_r, crank_q_d, crank_q_dlo,
         dbg_p_lane_to, dbg_p_lane_w, dbg_p_lane_entry, dbg_p_lane_extra,
-        dbg_p_vmax_in, dbg_p_vmax_out, dbg_p_wait, dbg_p_len, dbg_p_speed, dbg_p_angle, (float)dbg_p_spot_no
+        dbg_p_vmax_in, dbg_p_vmax_out, dbg_p_wait, dbg_p_len, dbg_p_speed, dbg_p_angle, (float)dbg_p_spot_no, crank_seen_w
     };
     const int np = sizeof(vals) / sizeof(vals[0]);
     int k = n - 5;
