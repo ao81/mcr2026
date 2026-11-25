@@ -142,6 +142,7 @@ void run_crank_return(bool right) {
               : (c == 0x60 || c == 0x70 || c == 0x30 || c == 0x18 || c == 0x08 || c == 0x10 || c == 0x38)) {
         led_out(0x0);
         cnt1 = 0;
+        line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;   // 斜めの中央線をハーフラインと見間違えない（CRK0086）
         pattern = PT_TRACE;
         return;
     }
@@ -167,6 +168,7 @@ void run_crank_outside(bool right) {
     if ((c & 0x18) != 0 && (c & (right ? 0x80 : 0x01)) == 0) {
         led_out(0x0);
         cnt1 = 0;
+        line_ignore_until = cnt0 + CRANK_EXIT_LINE_IGNORE_MS;   // 斜めの中央線をハーフラインと見間違えない（CRK0086）
         pattern = PT_TRACE;
         return;
     }
