@@ -261,7 +261,7 @@ void run_crank_arc(bool right) {
     crank_yaw = crank_yaw + speed_mps * 0.001f * fabsf(curvature_of_angle(servo_est_deg));
     // 今ハンドルを戻し始めても、戻りきるまでに向きはさらに変わる。その分を足して 90°になったら戻し始める
     // （90°を過ぎてから戻すと、行き過ぎた向きを直すのに時間がかかる）
-    if (!crank_unwind && crank_yaw + crank_unwind_yaw(speed_mps, servo_est_deg) >= PI_F * 0.5f) {
+    if (!crank_unwind && crank_yaw + crank_unwind_yaw(speed_mps, servo_est_deg) >= PI_F * 0.5f - CRANK_UNWIND_EARLY_DEG * DEG_TO_RAD_F) {
         crank_unwind = 1;
         crank_unwind_m = dist_m;
     }
