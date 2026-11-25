@@ -60,8 +60,10 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
   const q = [];
   function offer(name,step,lo,hi,center=get(name)) {
     if (!Number.isFinite(center)) return;
-    const range=bounds[name] || {};
-    function add(value) {
+    const range=bounds[name] || {}, unit=Math.abs(step);
+    function add(value, clamp=false) {
+      if (clamp) value=Math.min(hi,Math.max(lo,value));
+      value=Number(value.toFixed(5));
       if (value<lo || value>hi || value===get(name)) return;
       if (value <= (range.lower ?? -Infinity) || value >= (range.upper ?? Infinity)) return;
       q.push({[name]:value});
@@ -71,12 +73,21 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
     // DIPはPWM倍率に直接掛かるため、従来どおり1段ずつ比較する。
     const scales=name==='DIP_SPEED_BASE' ? [1] : [4,2,1];
     if (range.direction) {
+      const dir=range.direction, edge=dir>0 ? range.upper : range.lower;
+      if (Number.isFinite(edge)) {
+        // 採用値と不採用値に挟まれたら、その中点を試す（二分探索）。
+        const n=Math.floor(Math.abs(edge-center)/unit/2);
+        if (n>=1) add(center+dir*n*unit);
+      } else if (range.delta && name!=='DIP_SPEED_BASE') {
+        // 同じ向きで採用が続く間は、前回の変更量の2倍を先に試す。大きくずれた設定でも数回で届く。
+        add(center+dir*range.delta*2,true);
+      }
       for (const dir of [range.direction,-range.direction]) for (const scale of scales) {
-        add(Number((center+dir*Math.abs(step)*scale).toFixed(5)));
+        add(center+dir*unit*scale);
       }
     } else {
       for (const scale of scales) for (const dir of [1,-1]) {
-        add(Number((center+dir*step*scale).toFixed(5)));
+        add(center+dir*step*scale);
       }
     }
   }
@@ -202,7 +213,7 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
 function trialStats(times) {
   const median = a => [...a].sort((x,y)=>x-y)[Math.floor(a.length/2)];
   const ms=median(times);
-  return {ms,spread:median(times.map(t=>Math.abs(t-ms)))};
+  return {ms,spread:median(times.map(t=>Math.abs(t-ms))),max:Math.max(...times)};
 }
 const trialHeaders=['config.h','tables.h','dbg_config.h'];
 function trialStamp(s) {
@@ -225,7 +236,7 @@ function recordTrialBoundary(s, accepted) {
   const range=s.bounds[name] ??= {};
   const point=accepted ? old : proposed;
   const best=accepted ? proposed : old;
-  if (accepted) range.direction=Math.sign(proposed-old);
+  if (accepted) { range.direction=Math.sign(proposed-old); range.delta=Math.abs(proposed-old); }
   if (point<best) range.lower=Math.max(range.lower ?? -Infinity,point);
   if (point>best) range.upper=Math.min(range.upper ?? Infinity,point);
 }
@@ -254,14 +265,27 @@ function baselineSeed(s) {
   }
   return null;
 }
+function baselineCrashFix(csv, s) {
+  if (![1,2].includes(s.target)) return null;
+  try {
+    const {changes}=tuneLog(csv,headerFile('config.h'));
+    const c=changes.find(x=>x.name===(s.target===1 ? 'CRANK' : 'LANE')+'_BRAKE_MARGIN_M');
+    return c && c.next>c.old ? c : null;
+  } catch (_) { return null; }
+}
 function nextTrial(s, feedback) {
   // 毎回、現在までの採用設定から候補を作る。採用で切り替わった制御の候補にも対応する。
   const seed=s.seed;
   delete s.seed;
-  const patch=trialQueue(s.target,s.seen,s.params,s.bounds,seed).find(p=>{
+  const untried=trialQueue(s.target,s.seen,s.params,s.bounds,seed).filter(p=>{
     const key=Object.keys(p).sort().map(k=>k+':'+p[k]).join(',');
-    return !s.tried.includes(key);
+    const names=Object.keys(p);
+    return !s.tried.includes(key) && !(names.length===1 && (s.flat?.[names[0]] ?? 0)>=2);
   });
+  // 探索中の項目があれば、その項目の候補を先に試す（他の項目へ移るのは、その項目の幅が詰まってから）。
+  const patch=untried.find(p=>seed && p[seed.name]===seed.value) ||
+    untried.find(p=>s.focus && s.focus in p) || untried[0];
+  if (s.focus && !untried.some(p=>s.focus in p)) delete s.focus;
   if (!patch) {
     s.pending=null;
     s.message=feedback+'。全候補の比較が終了しました。「比較を終了・採用値に戻す」で確定してください。';
@@ -320,7 +344,16 @@ function addTrial(csv) {
       meta.trigger_ms<0 || meta.end_ms<=meta.trigger_ms || meta.events!==s.number ||
       Math.abs(rows.at(-1).ms-meta.end_ms)>=meta.interval_ms)) throw Error('指定区間の終了時刻を確認できません');
   const sameRoute=s.route===null || meta.route===s.route;
-  if (!complete || !sameRoute) {
+  const crashFix=!complete && !s.best ? baselineCrashFix(csv,s) : null;
+  if (crashFix) {
+    // 基準が速すぎてはみ出した場合は、単走診断の値で減速を早めて基準を取り直す。
+    trialEdit({[crashFix.name]:crashFix.next});
+    s.runs=[]; s.route=s.dip=null; s.seen=[]; s.params={};
+    s.id=trialId();
+    trialStamp(s);
+    s.message='基準走行が区間の途中で止まりました（はみ出し）。'+crashFix.name+' '+crashFix.old+' → '+crashFix.next+
+      ' にしたので、保存・書き込み後に基準の3走を取り直してください';
+  } else if (!complete || !sameRoute) {
     if (!s.best) {
       s.runs=[]; s.route=s.dip=null; s.seen=[]; s.params={};
       s.message='基準走行が途中停止または別経路でした。位置と条件を確認し、3走を取り直してください。';
@@ -332,7 +365,7 @@ function addTrial(csv) {
   } else {
     s.route=meta.route; s.dip=meta.dip;
     const ms=meta.end_ms-meta.trigger_ms;
-    s.runs.push({no:meta.run,ms,hint:s.best ? null : baselineHint(csv,s)});
+    s.runs.push({no:meta.run,ms,hint:baselineHint(csv,s)});
     if (!s.best) {
       const seen=new Map(s.seen.map(x=>[x.join(','),x]));
       for (const row of rows) if (row.ms>=meta.trigger_ms && row.ms<meta.end_ms) {
@@ -341,29 +374,48 @@ function addTrial(csv) {
       }
       s.seen=[...seen.values()]; s.params=params;
     }
-    // 2走とも採用ラインに届かなければ、3走目がいくら速くても中央値は届かない。
-    const cutoff=s.best ? s.best.ms-Math.max(2,s.best.spread) : null;
-    if (s.best && s.runs.length===2 && s.runs.every(r=>r.ms>=cutoff)) {
+    const stat=trialStats(s.runs.map(r=>r.ms));
+    const need=s.best ? Math.max(2,s.best.spread) : 0;
+    // 候補が採用値とほぼ同じタイム（はっきり遅くもない）なら、その項目はタイムにほとんど効いていない。
+    const flat=()=>stat.ms-s.best.ms<=3*need;
+    const reject=(feedback,noEffect=false)=>{
+      s.seed=baselineSeed(s);              // 候補の設定で取った診断が2本以上そろえば、次の候補に使う
       recordTrialBoundary(s,false);
-      trialEdit(s.undo);
-      nextTrial(s,'2走とも採用に必要なタイムに届かず、3走目を省略しました');
-    } else if (s.runs.length<3) s.message=(s.best?'候補':'基準')+' '+s.runs.length+'/3走。今回 '+ms+' ms。残りのCSVを追加してください。';
-    else {
-      const stat=trialStats(s.runs.map(r=>r.ms));
-      let feedback;
-      if (!s.best) { s.seed=baselineSeed(s); s.best=stat; feedback='基準中央値 '+stat.ms+' ms'; }
-      else if (s.best.ms-stat.ms>Math.max(2,s.best.spread,stat.spread)) {
-        // 別の項目の採用で以前の範囲が変わり得るため、その項目以外の境界を解除する。
-        const key=Object.keys(s.pending)[0];
-        s.bounds=s.bounds?.[key] ? {[key]:s.bounds[key]} : {};
-        recordTrialBoundary(s,true);
-        feedback='採用 '+s.best.ms+' → '+stat.ms+' ms'; s.best=stat;
-      } else {
-        recordTrialBoundary(s,false);
-        trialEdit(s.undo); feedback='候補中央値 '+stat.ms+' ms。改善を確認できず、採用値 '+s.best.ms+' ms に戻しました';
+      const key=Object.keys(s.pending)[0];
+      // 大きい刻みで上げても下げても差が出なければ、小さい刻みは試さずに次の項目へ進む。
+      if (noEffect && Object.keys(s.pending).length===1 && !key.startsWith('USE_NEW_') && !s.bounds?.[key]?.direction) {
+        s.flat ??= {};
+        s.flat[key]=(s.flat[key]||0)+1;
       }
+      if (s.bounds?.[key]?.direction) s.focus=key;
+      trialEdit(s.undo);
       nextTrial(s,feedback);
-    }
+    };
+    const accept=feedback=>{
+      // 別の項目の採用で以前の範囲が変わり得るため、その項目以外の境界を解除する。
+      const key=Object.keys(s.pending)[0];
+      s.bounds=s.bounds?.[key] ? {[key]:s.bounds[key]} : {};
+      recordTrialBoundary(s,true);
+      if (s.bounds[key]?.direction) s.focus=key; else delete s.focus;
+      s.seed=baselineSeed(s);
+      s.best=stat;
+      nextTrial(s,feedback);
+    };
+    if (s.best && s.runs.length===1 && ms-s.best.ms>3*need && ms>(s.best.max ?? s.best.ms)+need) {
+      // 1走目が基準のどの走行よりもはっきり遅ければ、残りを走っても採用されない。
+      reject('1走目 '+ms+' ms が採用値 '+s.best.ms+' ms よりはっきり遅いため、2走目以降を省略しました');
+    } else if (s.best && s.runs.length===2 && s.runs.every(r=>r.ms>=s.best.ms-need)) {
+      // 2走とも採用ラインに届かなければ、3走目がいくら速くても中央値は届かない。
+      reject('2走とも採用に必要なタイムに届かず、3走目を省略しました',flat());
+    } else if (s.best && s.runs.length===2 && s.best.ms-stat.ms>Math.max(need,stat.spread)) {
+      // 2走の遅い方でも、基準の中央値より採用幅を超えて速ければ採用する。
+      accept('2走で採用 '+s.best.ms+' → '+stat.ms+' ms');
+    } else if (s.runs.length<3) s.message=(s.best?'候補':'基準')+' '+s.runs.length+'/3走。今回 '+ms+' ms。残りのCSVを追加してください。';
+    else if (!s.best) {
+      s.seed=baselineSeed(s); s.best=stat;
+      nextTrial(s,'基準中央値 '+stat.ms+' ms');
+    } else if (s.best.ms-stat.ms>Math.max(need,stat.spread)) accept('採用 '+s.best.ms+' → '+stat.ms+' ms');
+    else reject('候補中央値 '+stat.ms+' ms。改善を確認できず、採用値 '+s.best.ms+' ms に戻しました',flat());
   }
   persistTrial(s);
 }
