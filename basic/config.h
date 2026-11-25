@@ -52,7 +52,7 @@ const unsigned long CURVE_STAGE_DOWN_MS[TRACE_STAGES] = { 0, 25, 50, 75, 100, 12
 // クロスライン・クランク（pattern 100〜161）
 //========================================
 #define CROSS_STRAIGHT_MS       100     // クロスライン通過後、クランク判定を始めるまでの時間
-#define CRANK_ANGLE             50      // クランクでのハンドル最大角度
+#define CRANK_ANGLE             60      // クランクでのハンドル最大角度
 #define CRANK_ENTER_MS          70      // クランク突入（110/150）から低速旋回（111/151）へ移る時間
 
 // クロスライン通過後の速度変化（newcrank）
@@ -278,7 +278,7 @@ const int COURSE_START_ROWS[] = {
 //========================================
 #define CRANK_ENTRY_MPS         0.0f    // クランクに入る速さ [m/s]。0 なら円弧の半径とグリップから自動で計算する（USE_NEW_CRANK_TURN が 1 のとき）
                                         //   USE_NEW_CRANK_TURN が 0 のときは、元の曲がり方でうまく曲がれる速さを入れる（模擬では 1.4 前後）
-#define CRANK_BRAKE_POWER       (-60)   // ブレーキのときのモータ出力（マイナスは逆転）
+#define CRANK_BRAKE_POWER       (-40)   // ブレーキのときのモータ出力（マイナスは逆転）
 #define SPEED_HOLD_BAND_MPS     0.05f   // 減速して目標の速さからこれ [m/s] 以内になったら、ブレーキをやめて目標の速さに保つ（クランク・レーンチェンジ手前）
 #define SPEED_HOLD_S            0.020f  // 目標の速さに保つとき、ずれを直す速さ [s]（短いほど強く直すが、出力が振れやすい）
 #define CRANK_BRAKE_MARGIN_M    0.05f   // 計算の誤差に備えて、早めにブレーキをかける距離 [m]（距離の推定の誤差 ±5% × 1m 分）
