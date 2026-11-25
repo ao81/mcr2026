@@ -157,7 +157,9 @@ void run_crank_outside(bool right) {
         apply_table(CRANK_L_OUTSIDE_SENSOR, CRANK_L_OUTSIDE_ACT, CRANK_L_OUTSIDE_N, c);
     }
     // 中央線が見えたら復帰処理へ（cnt1 は0にしない）
-    if (c == 0x83 || c == 0x81 || c == 0xc1) {
+    // 曲がる側の端だけに線が見えたときも、線はもうセンサの下を通り過ぎて曲がる側にあるので、復帰処理で線へ寄せる
+    //   （この形は上の表にないので、前の出力のまま止まらずに回り続けていた。CRK0054 は 00000001 のまま 2 秒以上）
+    if (c == 0x83 || c == 0x81 || c == 0xc1 || c == (right ? 0x01 : 0x80) || c == (right ? 0x03 : 0xc0)) {
         pattern = right ? PT_CRANK_R_RETURN : PT_CRANK_L_RETURN;
     }
 }

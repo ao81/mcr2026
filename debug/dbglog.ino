@@ -39,6 +39,7 @@ static volatile unsigned long dbg_trigger_ms;  // 記録したい区間に入っ
 static volatile unsigned long dbg_end_ms;      // その区間を出た時間 [ms]（0 はまだ）
 static volatile unsigned long dbg_stop_ms;     // 記録を止めた時間 [ms]
 static volatile int dbg_written;          // 1: microSD に書き終えた
+static volatile int dbg_after_trigger = -1;// 選んだ区間に入ってから貯めた数（-1 は区間の外）
 
 // 同じ標識列とDIPで走ったCSVだけを比較する。仮判定中のハーフラインは数えない。
 static uint32_t dbg_route = 2166136261u;
@@ -174,6 +175,7 @@ void dbg_sample(void) {
         if (DBG_TARGET_NO == 0 || dbg_events == DBG_TARGET_NO) {
             dbg_trigger_ms = cnt_start;
             dbg_end_ms = 0;
+            dbg_after_trigger = 0;
             dbg_take_params_in();
         }
     } else if (!ev && dbg_in_event && p < PT_STOP) {
@@ -183,9 +185,11 @@ void dbg_sample(void) {
         if (p < PT_TRACE || p >= PT_CROSS_FOUND) {
             if (dbg_events == DBG_TARGET_NO) dbg_trigger_ms = 0;
             --dbg_events;
+            dbg_after_trigger = -1;
         } else
 #endif
         if (DBG_TARGET_NO == 0 || dbg_events == DBG_TARGET_NO) dbg_end_ms = cnt_start;
+        dbg_after_trigger = -1;
     }
 
 #endif
@@ -208,6 +212,18 @@ void dbg_sample(void) {
         e.pad = 0;
         dbg_head = (dbg_head + 1 == DBG_SAMPLES) ? 0 : dbg_head + 1;
         if (dbg_count < DBG_SAMPLES) dbg_count++;
+#if DBG_TARGET != 3 && DBG_TARGET != 5 && DBG_TARGET != 6
+        // 区間が長く続いて（復帰処理から抜けられない など）区間の始まりが上書きされそうになったら、そこで止める。
+        // 始まりが消えると、なぜそうなったかが分からない（CRK0054 / CRK0055 は止まっている 2.2 秒だけが残った）。
+        // 区間の前の様子を DBG_PRE_KEEP 個だけ残す。止めた理由は 2（途中で止まった）として書く
+        if (dbg_after_trigger >= 0 && DBG_TARGET_NO != 0) {
+            dbg_after_trigger++;
+            if (dbg_after_trigger >= DBG_SAMPLES - DBG_PRE_KEEP) {
+                dbg_freeze(2);
+                return;
+            }
+        }
+#endif
     }
 
     // 記録を止める
