@@ -15,7 +15,7 @@
 // PWM周期 (HOCO 48MHz を 16分周 = 3MHz でカウント)
 #define PWM_CYCLE       32999   // サーボ  11ms = 33000カウント
 #define PWM_CYCLE_M     14999   // モータ   5ms = 15000カウント
-#define SERVO_CENTER    5170    // ハンドルが真っすぐになるPWM値（車体ごとに合わせる。値を上げると左向き。23 で約1度）
+#define SERVO_CENTER    4450    // ハンドルが真っすぐになるPWM値（車体ごとに合わせる。値を上げると左向き。23 で約1度）
                                 //   LOG0008: 直線で -7度 が +7度 の約4倍出ていた（右へずれていく）ので 5150 → 5170
 #define HANDLE_STEP     23      // 1度あたりのPWM値
 #define SERVO_DIR       (-1)    // サーボが左右逆に動くときは (+1) にする

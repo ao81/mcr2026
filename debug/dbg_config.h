@@ -18,20 +18,20 @@
 //   1 : クランク（クロスラインを見つけてから、曲がり終えて通常走行に戻るまで。pattern 100〜161）
 //   2 : レーンチェンジ（ハーフラインを見つけてから、通常走行に戻るまで。pattern 200〜202, 300〜450, 500〜502, 600〜750）
 //   3 : 時間で指定（スタートから DBG_FROM_MS 〜 DBG_TO_MS）
-#define DBG_AUTO_STOP     0     // 1: 区間終了で車体を停止し、専用CSVを自動保存
+#define DBG_AUTO_STOP     1     // 1: 区間終了で車体を停止し、専用CSVを自動保存
 // 4 : カーブ（操舵の継続で検出）
 // 5 : 直前の特殊区間の出口から指定標識まで（最初はスタートから）
 // 6 : スタートから指定標識までの総合タイム
-#define DBG_TRIAL_ID      0UL   // タイム比較画面が設定ごとに発行する番号
-#define DBG_TARGET        1
-#define DBG_TARGET_NO     1     // 何回目の区間を記録するか（1 = スタートして最初のクランク）。0 なら止まるまで記録し続け、最後の DBG_SAMPLES 個を残す
+#define DBG_TRIAL_ID      0UL        // タイム比較画面が設定ごとに発行する番号
+#define DBG_TARGET        6
+#define DBG_TARGET_NO     2     // 何回目の区間を記録するか（1 = スタートして最初のクランク）。0 なら止まるまで記録し続け、最後の DBG_SAMPLES 個を残す
 #define DBG_FROM_MS       0     // DBG_TARGET 3 のとき：記録を始める時間 [ms]
 #define DBG_TO_MS         1000  // DBG_TARGET 3 のとき：記録を止める時間 [ms]
 
-#define DBG_INTERVAL_MS   2     // 記録する間隔 [ms]（1 にすると細かくなるが、残る時間は半分になる）
+#define DBG_INTERVAL_MS   67    // 記録する間隔 [ms]（1 にすると細かくなるが、残る時間は半分になる）
 #define DBG_SAMPLES       450   // RAM に残す数。1個 24 バイト（450 個で 10.8KB）。残る時間 = DBG_INTERVAL_MS × DBG_SAMPLES
                                 //   2ms × 450 = 0.9 秒。クランクは、クロスラインから曲がり終わるまでおよそ 0.5〜0.9 秒
                                 //   書き込みの時に RAM が足りないと言われたら減らす
-#define DBG_POST_MS       100   // 区間が終わってから、さらに記録を続ける時間 [ms]（通常走行に戻った後の揺れを見るため）
+#define DBG_POST_MS       0     // 区間が終わってから、さらに記録を続ける時間 [ms]（通常走行に戻った後の揺れを見るため）
 
 #endif
