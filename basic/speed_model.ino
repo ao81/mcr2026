@@ -454,7 +454,9 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
 void crank_speed_control_new(void) {
 #if USE_NEW_CRANK_ANY_COURSE
     // 曲がり角までの距離を使わない：曲がり角の線を見てからでも間に合う速さ（計算できなければクランクに入る速さ）まで、すぐに落とす
-    float v_app = crank_app_mps > 0.0f ? crank_app_mps : crank_entry_mps;
+    float v_app = crank_entry_mps;
+    if (CRANK_APPROACH_MPS > 0.0f) v_app = CRANK_APPROACH_MPS;
+    else if (CRANK_APPROACH_MPS < 0.0f && crank_app_mps > 0.0f) v_app = crank_app_mps;
     int pa = brake_power_for(0.0f, v_app, CRANK_BRAKE_POWER, 0.0f);
     sp(pa, pa);
     return;

@@ -100,7 +100,8 @@ void crank_quick_setup(void) {
     if (pick_r <= 0.0f) { pick_r = best_r; pick_lo = best_lo; pick_hi = best_hi; }
     if (pick_r <= 0.0f) return;                   // 曲がれる半径がない
     crank_q_r = pick_r;
-    crank_q_d = (pick_lo + pick_hi) * 0.5f;
+    crank_q_d = (pick_lo + pick_hi) * 0.5f + CRANK_TURN_EARLY_M;   // 真ん中より少し早く（D が大きいほど手前で曲がり始める）
+    if (crank_q_d > pick_hi) crank_q_d = pick_hi;
     crank_q_dlo = pick_lo;
 }
 
