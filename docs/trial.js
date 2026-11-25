@@ -55,14 +55,29 @@ function actionName(p) {
   }
   return null;
 }
-function trialQueue(target, seen, params) {
+function trialQueue(target, seen, params, bounds={}, seed=null) {
   const f = trialFields(), get = k => Number(f.get(k)?.value);
   const q = [];
   function offer(name,step,lo,hi,center=get(name)) {
     if (!Number.isFinite(center)) return;
-    for (const dir of [1,-1]) {
-      const val = Number((center+dir*step).toFixed(5));
-      if (val>=lo && val<=hi && val!==get(name)) q.push({[name]:val});
+    const range=bounds[name] || {};
+    function add(value) {
+      if (value<lo || value>hi || value===get(name)) return;
+      if (value <= (range.lower ?? -Infinity) || value >= (range.upper ?? Infinity)) return;
+      q.push({[name]:value});
+    }
+    if (seed && seed.name===name) add(seed.value);
+    // 大きな段差を飛び越えたら、採用値と不採用値の間を半分の刻みで探す。
+    // DIPはPWM倍率に直接掛かるため、従来どおり1段ずつ比較する。
+    const scales=name==='DIP_SPEED_BASE' ? [1] : [4,2,1];
+    if (range.direction) {
+      for (const dir of [range.direction,-range.direction]) for (const scale of scales) {
+        add(Number((center+dir*Math.abs(step)*scale).toFixed(5)));
+      }
+    } else {
+      for (const scale of scales) for (const dir of [1,-1]) {
+        add(Number((center+dir*step*scale).toFixed(5)));
+      }
     }
   }
   const encountered=(lo,hi)=>seen.some(([p])=>p>=lo && p<=hi);
@@ -199,9 +214,51 @@ function trialStamp(s) {
   s.staged={};
   for (const [key,{f,t,value}] of fields) if (f.edits.has(t.key)) s.staged[key]=value;
 }
+// 同じ項目を探索している間だけ、その側の改善が止まった点を境界にする。
+function recordTrialBoundary(s, accepted) {
+  const keys=Object.keys(s.pending);
+  if (keys.length!==1 || keys[0].startsWith('USE_NEW_')) return;
+  const name=keys[0], old=Number(s.undo[name]), proposed=s.pending[name];
+  // 進入速度の0は「自動計算」であり、速度0 m/sを表さない。
+  if (old===0 && name.endsWith('_ENTRY_MPS')) return;
+  s.bounds ??= {};
+  const range=s.bounds[name] ??= {};
+  const point=accepted ? old : proposed;
+  const best=accepted ? proposed : old;
+  if (accepted) range.direction=Math.sign(proposed-old);
+  if (point<best) range.lower=Math.max(range.lower ?? -Infinity,point);
+  if (point>best) range.upper=Math.min(range.upper ?? Infinity,point);
+}
+
+// 3本中2本以上の単走診断が同じ項目・方向を推したときだけ初手に使う。
+function baselineHint(csv, s) {
+  if (![1,2,4].includes(s.target)) return null;
+  const name={1:'CRANK_BRAKE_MARGIN_M',2:'LANE_BRAKE_MARGIN_M',4:'CURVE_DRIVE_PERCENT'}[s.target];
+  try {
+    const {changes}=tuneLog(csv,headerFile('config.h'));
+    if (changes.length===1 && changes[0].name===name) return changes[0].next;
+  } catch (_) { /* 単走診断に必要な区間が残っていなくても、区間タイムは使える。 */ }
+  return null;
+}
+function baselineSeed(s) {
+  const name={1:'CRANK_BRAKE_MARGIN_M',2:'LANE_BRAKE_MARGIN_M',4:'CURVE_DRIVE_PERCENT'}[s.target];
+  if (!name) return null;
+  const old=setting(headerFile('config.h'),name);
+  const hints=s.runs.map(r=>r.hint).filter(Number.isFinite);
+  for (const sign of [-1,1]) {
+    const votes=hints.filter(v=>Math.sign(v-old)===sign).sort((a,b)=>a-b);
+    if (votes.length>=2) {
+      // 2票なら変更量の小さい方、3票なら中央値。
+      return {name,value:votes.length===3 ? votes[1] : votes[sign>0 ? 0 : 1]};
+    }
+  }
+  return null;
+}
 function nextTrial(s, feedback) {
   // 毎回、現在までの採用設定から候補を作る。採用で切り替わった制御の候補にも対応する。
-  const patch=trialQueue(s.target,s.seen,s.params).find(p=>{
+  const seed=s.seed;
+  delete s.seed;
+  const patch=trialQueue(s.target,s.seen,s.params,s.bounds,seed).find(p=>{
     const key=Object.keys(p).sort().map(k=>k+':'+p[k]).join(',');
     return !s.tried.includes(key);
   });
@@ -219,8 +276,9 @@ function nextTrial(s, feedback) {
   s.id=trialId();
   s.runs=[];
   trialStamp(s);
-  s.message=feedback+'。次の候補 '+Object.entries(patch).map(([k,v])=>k+' '+s.undo[k]+' → '+v).join('、')+
-    '。保存し、debug/debug.ino を書き込んで同じ条件で3走してください。';
+  const label=seed && patch[seed.name]===seed.value ? '単走診断から選んだ候補 ' : '次の候補 ';
+  s.message=feedback+'。'+label+Object.entries(patch).map(([k,v])=>k+' '+s.undo[k]+' → '+v).join('、')+
+    '。保存・書き込み後、同じ条件で測定してください（最大3走）。';
 }
 function beginTrial() {
   const existing=readTrial();
@@ -267,13 +325,14 @@ function addTrial(csv) {
       s.runs=[]; s.route=s.dip=null; s.seen=[]; s.params={};
       s.message='基準走行が途中停止または別経路でした。位置と条件を確認し、3走を取り直してください。';
     } else {
+      recordTrialBoundary(s,false);
       trialEdit(s.undo);
       nextTrial(s,complete?'通過した標識の順序・種類が異なるため候補を取り消しました':'途中停止のため候補を取り消しました');
     }
   } else {
     s.route=meta.route; s.dip=meta.dip;
     const ms=meta.end_ms-meta.trigger_ms;
-    s.runs.push({no:meta.run,ms});
+    s.runs.push({no:meta.run,ms,hint:s.best ? null : baselineHint(csv,s)});
     if (!s.best) {
       const seen=new Map(s.seen.map(x=>[x.join(','),x]));
       for (const row of rows) if (row.ms>=meta.trigger_ms && row.ms<meta.end_ms) {
@@ -282,14 +341,25 @@ function addTrial(csv) {
       }
       s.seen=[...seen.values()]; s.params=params;
     }
-    if (s.runs.length<3) s.message=(s.best?'候補':'基準')+' '+s.runs.length+'/3走。今回 '+ms+' ms。残りのCSVを追加してください。';
+    // 2走とも採用ラインに届かなければ、3走目がいくら速くても中央値は届かない。
+    const cutoff=s.best ? s.best.ms-Math.max(2,s.best.spread) : null;
+    if (s.best && s.runs.length===2 && s.runs.every(r=>r.ms>=cutoff)) {
+      recordTrialBoundary(s,false);
+      trialEdit(s.undo);
+      nextTrial(s,'2走とも採用に必要なタイムに届かず、3走目を省略しました');
+    } else if (s.runs.length<3) s.message=(s.best?'候補':'基準')+' '+s.runs.length+'/3走。今回 '+ms+' ms。残りのCSVを追加してください。';
     else {
       const stat=trialStats(s.runs.map(r=>r.ms));
       let feedback;
-      if (!s.best) { s.best=stat; feedback='基準中央値 '+stat.ms+' ms'; }
+      if (!s.best) { s.seed=baselineSeed(s); s.best=stat; feedback='基準中央値 '+stat.ms+' ms'; }
       else if (s.best.ms-stat.ms>Math.max(2,s.best.spread,stat.spread)) {
+        // 別の項目の採用で以前の範囲が変わり得るため、その項目以外の境界を解除する。
+        const key=Object.keys(s.pending)[0];
+        s.bounds=s.bounds?.[key] ? {[key]:s.bounds[key]} : {};
+        recordTrialBoundary(s,true);
         feedback='採用 '+s.best.ms+' → '+stat.ms+' ms'; s.best=stat;
       } else {
+        recordTrialBoundary(s,false);
         trialEdit(s.undo); feedback='候補中央値 '+stat.ms+' ms。改善を確認できず、採用値 '+s.best.ms+' ms に戻しました';
       }
       nextTrial(s,feedback);
@@ -329,7 +399,18 @@ $('trialLog').onchange=async e=>{
   const input=e.target;
   S.readingTrials=true;
   renderWorkspace();
-  try { for (const file of input.files) addTrial(await file.text()); }
+  try {
+    const files=Array.from(input.files);
+    for (const [i,file] of files.entries()) {
+      const id=readTrial()?.id;
+      addTrial(await file.text());
+      const current=readTrial();
+      if (i+1<files.length && (current.id!==id || !current.pending && current.best)) {
+        $('trialStatus').textContent=current.message+'（この設定の判定が済んだため、残り'+(files.length-i-1)+'本を省略）';
+        break;
+      }
+    }
+  }
   catch(err) { trialError(err); }
   finally { input.value=''; S.readingTrials=false; renderWorkspace(); }
 };

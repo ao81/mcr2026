@@ -176,7 +176,7 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
   </fieldset>
   <fieldset><legend>調整方法</legend><div class="choices">
     <label><input id="singleMode" name="tuneMethod" type="radio" checked> 1走の記録・診断</label>
-    <label><input id="compareMode" name="tuneMethod" type="radio"> タイム比較（設定ごとに3走）</label>
+    <label><input id="compareMode" name="tuneMethod" type="radio"> タイム比較（基準3走・候補最大3走）</label>
   </div></fieldset>
   <section class="tune-box" id="singlePanel"><h2>1走の記録・診断</h2>
     <p>「停止・保存を設定」を押し、上部の「保存」で設定を反映してから、Arduino IDEで <code>debug/debug.ino</code> を書き込みます。</p>
@@ -191,7 +191,7 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
     <p id="compareHint"></p>
     <label>比較用CSVを追加 <input id="trialLog" type="file" accept=".csv,text/csv" multiple></label>
     <output id="trialStatus" aria-live="polite"></output>
-    <p>候補が出たら保存・書き込みを行い、同じ区間を再測定します。終了時は採用値に戻して保存します。</p>
+    <p>数値は広い刻みから試し、改善の境目で細かくします。候補を保存・書き込みして走行し、まず2本のCSVを追加してください。画面が残り1走を求めたら3走目を測ります。途中停止したCSVはその時点で追加できます。終了時は採用値に戻して保存します。</p>
   </section>
 </section>
 <dialog id="dlgGit">
@@ -497,7 +497,7 @@ function renderWorkspace() {
     5:'速度段階の切替時間、操舵角や左右モーター出力',
     6:'通常走行と、基準ログに現れたクランク・車線変更などの設定'
   };
-  $('compareHint').textContent = '比較する候補は、'+candidates[$('eventType').value]+'などです。'+prefix+'NNNN.csv を1本ずつ、または同じ設定の3本をまとめて追加してください。';
+  $('compareHint').textContent = '比較する候補は、'+candidates[$('eventType').value]+'などです。'+prefix+'NNNN.csv を1本ずつ、または同じ設定の分をまとめて追加してください。';
   $('preset').disabled = !!missing.length;
   $('readLog').disabled = !headerFile('config.h');
   $('trialStart').disabled = !!missing.length;
