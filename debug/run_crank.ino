@@ -12,9 +12,6 @@ void run_cross_found(void) {
     cnt1 = 0;
     pattern = PT_CROSS_PASS;
     crank_spot_select();                           // これから来るクランクの距離・クロスラインの幅（config.h の COURSE_LIST）
-    crank_cross_v0 = speed_mps;                    // クロスラインに入った時の速さ（CRANK_LINE_SAME_WIDTH）
-    crank_seen_w = 0.0f;
-    crank_cross_ms = 1;                            // この1msも白を見ている
 #if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
     // センサはクロスラインの始まりにいる。ラインの終わりまでは crank_line_w_m あるので、距離をその分マイナスから数え、
     // 通過時間を測り終わるのを待たずに、今の速さの推定で減速を始める（通過し終えたら測った速さで計算し直す）
@@ -27,38 +24,12 @@ void run_cross_found(void) {
 }
 
 //**********************************************************************
-// CRANK_LINE_SAME_WIDTH：クロスラインがセンサに見える幅を求める（pattern 101・102 で毎ms呼ぶ）
-//   両端の3つずつのセンサ（11100111 の所）のどれかが白の間の時間を数え、白が消えたら
-//   クロスラインを通る間の速さ（入った時と出た時の推定の平均）× 時間 = センサに見えた幅 とする。
-//   曲がり角の線（中央線）も同じ幅とみなして、そこを通る時間で速さを測る（中央線の幅が 20/30/40mm のどれでも合う）。
-//   曲がり角の線も「曲がる側の3つのセンサのどれかが白の間」を数えるので、同じ数え方になる
-//**********************************************************************
-static void crank_cross_count(unsigned char c) {
-#if USE_NEW_CRANK_ANY_COURSE && USE_NEW_CRANK_QUICK && CRANK_LINE_SAME_WIDTH
-    if (crank_cross_ms <= 0) return;               // 数え終わった
-    if ((c & 0xe7) != 0) {
-        crank_cross_ms++;
-        if (crank_cross_ms > 200) crank_cross_ms = 0;   // 長すぎる（線ではない）。幅は求めない
-        return;
-    }
-    float vc = (crank_cross_v0 + speed_mps) * 0.5f;
-    float w = vc * (crank_cross_ms + LINE_PASS_OFFSET_MS) * 0.001f;   // 曲がり角の線の cnt1 と同じ数え方
-    w = w * CRANK_SEEN_W_SCALE;                    // 速さの推定が低めだと幅も狭く出る。広めにして、曲がり角の速さを多めに見積もる側にする
-    crank_seen_w = (model_ok && w >= CRANK_SEEN_W_MIN_M && w <= CRANK_SEEN_W_MAX_M) ? w : 0.0f;
-    crank_cross_ms = 0;
-#else
-    (void)c;
-#endif
-}
-
-//**********************************************************************
 // pattern 101 : クロスラインの通過時間を測る（速いほど短い）
 //**********************************************************************
 void run_cross_pass(void) {
 #if USE_NEW_BRAKE_RANGE && USE_NEW_CRANK_BRAKE
     if (model_ok) crank_speed_control_new();       // 通過中も減速の計算を続ける
 #endif
-    crank_cross_count(sensor_inp(MASK4_4));
     measure_line_pass(check_crossline());
     if (line_pass_state == PASS_DONE) {
 #if !USE_NEW_CRANK_ANY_COURSE
@@ -78,7 +49,6 @@ void run_cross_pass(void) {
 //**********************************************************************
 void run_cross_brake(void) {
     line_pass_state = PASS_WAIT;
-    crank_cross_count(sensor_inp(MASK4_4));
     crank_speed_control();
     if (cnt1 > CROSS_STRAIGHT_MS) {
         pattern = PT_CRANK_SEARCH;
@@ -240,14 +210,6 @@ void run_crank_outside(bool right) {
     }
 }
 
-// 曲がり角の線がセンサに見える幅 [m]
-float crank_corner_seen_w(void) {
-#if CRANK_LINE_SAME_WIDTH
-    if (crank_seen_w > 0.0f) return crank_seen_w;  // クロスラインと同じ幅とみなす
-#endif
-    return CENTER_LINE_WIDTH_M + LINE_SEEN_EXTRA_M;
-}
-
 //**********************************************************************
 // クランクを見つけた時に、計算した円弧で曲がれるか調べて、曲がれるなら pattern 112 / 152 へ（USE_NEW_CRANK_TURN）
 //   戻り値 true: 円弧で曲がる  false: 曲がれないので元の方法で曲がる
@@ -304,7 +266,7 @@ void run_crank_arc(bool right) {
         unsigned char side = right ? 0x07 : 0xe0;   // 曲がる側のセンサ3つ
         if ((c & side) == 0) {
             crank_measuring = 0;
-            float wl = crank_corner_seen_w();
+            float wl = CENTER_LINE_WIDTH_M + LINE_SEEN_EXTRA_M;
             float vm = wl / ((cnt1 + LINE_PASS_OFFSET_MS) * 0.001f);
             // 減速の後は推定が大きくずれていることがあるので、クロスラインのとき（0.6〜1.67倍）より広く受け付ける。
             // それより大きく違うときは測り間違いとみて使わない

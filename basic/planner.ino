@@ -121,7 +121,7 @@ int crank_plan_delay(float v, float delay, float* r_out, float* wait_out) {
 #if USE_NEW_CRANK_QUICK
     if (crank_q_r <= 0.0f) return 0;
     // センサは曲がり角の線の中心ではなく、線の手前の端で線を見つける。その分だけ後輪の軸は手前にいる
-    const float d_seen = d_avail + crank_corner_seen_w() * 0.5f;
+    const float d_seen = d_avail + CENTER_LINE_WIDTH_M * 0.5f + LINE_SEEN_EXTRA_M * 0.5f;
     float dq = crank_q_d;
     if (d_seen < dq) {                             // 速くて、真ん中の位置はもう過ぎた
         if (d_seen < crank_q_dlo) return 0;        // 範囲の外 → 曲がれないので元の方法で曲がる

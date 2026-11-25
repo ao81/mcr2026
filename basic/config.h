@@ -168,15 +168,6 @@ const int SENSOR_X_MM[8] = { -35, -25, -15, -5, 5, 15, 25, 35 };
                                         //   0 で理論上の限界。サーボの速さ・センサの位置・速さの推定の誤差の分を残す
                                         //   （模擬では 0.010 だと、サーボが 2/3 の速さのときやセンサが 2cm ずれたときにクランクでコースアウトした）
 #define CENTER_LINE_WIDTH_M     0.020f  // 中央線の幅（USE_NEW_CRANK_QUICK で使う。センサは曲がり角の線の中心より、この半分 ＋ LINE_SEEN_EXTRA_M の半分だけ手前で線を見つける）
-                                        //   CRANK_LINE_SAME_WIDTH が 1 のときは使わない
-#define CRANK_LINE_SAME_WIDTH   1       // USE_NEW_CRANK_ANY_COURSE と USE_NEW_CRANK_QUICK：曲がり角の線（中央線）の幅を、そのクランクのクロスラインと同じとみなす
-                                        //   1 : クロスラインを通る時間 × その時の速さ で、センサに見える線の幅を求め、曲がり角の線の速さはその幅で測る。
-                                        //       中央線の幅が 20mm・30mm・40mm と場所で違っても、クロスラインと同じ幅なら合う（2026-11-25）
-                                        //   0 : 曲がり角の線の幅を CENTER_LINE_WIDTH_M ＋ LINE_SEEN_EXTRA_M とする（前と同じ）
-#define CRANK_SEEN_W_MIN_M      0.012f  // CRANK_LINE_SAME_WIDTH：求めた幅がこの範囲 [m] の外なら測り間違いとみて、CENTER_LINE_WIDTH_M ＋ LINE_SEEN_EXTRA_M を使う
-#define CRANK_SEEN_W_MAX_M      0.060f
-#define CRANK_SEEN_W_SCALE      1.00f   // CRANK_LINE_SAME_WIDTH：求めた幅にかける数。クロスラインでの速さの推定は V_MAX_MPS で決まるので、V_MAX_MPS が本当より 1 割低いと幅も 1 割狭く出る
-                                        //   （模擬では、本当の最高速度が V_MAX_MPS より 1 割速くても遅くても失敗が増えた。この数で合わせるより V_MAX_MPS を実測する）
 #define TRACE_MIN_RADIUS_M      0.450f  // カーブの最小半径（規則 450mm 以上。USE_NEW_STEER で使う）
 #define CROSS_LINE_WIDTH_M      0.020f  // クロスラインの進行方向の幅（規則 20〜40mm。★大会のコースで測る）
 #define HALF_LINE_WIDTH_M       0.040f  // ハーフラインの進行方向の幅（同上）
@@ -291,8 +282,7 @@ const int COURSE_START_ROWS[] = {
 #define SPEED_HOLD_BAND_MPS     0.05f   // 減速して目標の速さからこれ [m/s] 以内になったら、ブレーキをやめて目標の速さに保つ（クランク・レーンチェンジ手前）
 #define SPEED_HOLD_S            0.020f  // 目標の速さに保つとき、ずれを直す速さ [s]（短いほど強く直すが、出力が振れやすい）
 #define CRANK_BRAKE_MARGIN_M    0.05f   // 計算の誤差に備えて、早めにブレーキをかける距離 [m]（距離の推定の誤差 ±5% × 1m 分）
-#define CRANK_EXIT_LINE_IGNORE_MS 400   // クランクを曲がり終えて通常走行に戻ってから（円弧・復帰処理 120/160・121/161 のどれから戻っても）、この時間 [ms] はクロスライン・ハーフラインを探さない（斜めに見えた中央線を見間違えないように）
-                                        //   200 → 400（2026-11-25）：模擬で中央線が 30mm のとき、クランクの後に車が左右に揺れ、200ms を過ぎてから斜めの線（00001111）をハーフラインと見間違えた
+#define CRANK_EXIT_LINE_IGNORE_MS 200   // クランクを曲がり終えて通常走行に戻ってから（円弧・復帰処理 120/160・121/161 のどれから戻っても）、この時間 [ms] はクロスライン・ハーフラインを探さない（斜めに見えた中央線を見間違えないように）
 #define CRANK_EXIT_SEARCH_M     0.120f  // USE_NEW_CRANK_QUICK：ハンドルを戻し始めてから、この距離 [m] 進んでも新しい線が見えなければ、元の復帰処理（120 / 160）へ移る
                                         //   ハンドルが戻りきるまで（1.07 m/s で約 0.09m）は待つ。模擬でうまく曲がれたときは、戻し始めてから 0.02m ほどで線が見える
                                         //   FULL0053（2026-11-25）：曲がり始めが遅れて新しい線を 4cm ほど通り越し、線が見えないまま全開で 3m 以上直進した

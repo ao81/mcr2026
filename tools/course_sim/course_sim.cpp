@@ -7,7 +7,7 @@
 //       s_r / s_l : 直線 → 右（左）へ s_deg 度曲がる半径 s_rad の円弧 → 反対へ s_deg 度の円弧 → 直線（S字）
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
 //       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r s_rad s_deg
-//       cross_to2 line_w2 gap turn1 turn2（crank2）  corner_w（crank_l / crank_r の曲がり角の線（曲がる側へ延びる中心線）の幅。既定 0.020。0 にするとクロスラインと同じ幅 line_w）
+//       cross_to2 line_w2 gap turn1 turn2（crank2）
 //       sensor_to_axle half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
@@ -79,7 +79,7 @@ static std::map<std::string, double> P = {
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0},
-    {"corner_w", 0.020}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
+    {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
 };
 
 static Course make_course(const std::string& name) {
@@ -116,12 +116,11 @@ static Course make_course(const std::string& name) {
     }
     if (name.rfind("crank", 0) == 0) {
         c.kind = 0;
-        const double CW = (P["corner_w"] > 0 ? P["corner_w"] : lw) * 0.5;   // 曲がり角の線の幅の半分
-        double y0 = y1 + lw + P["cross_to"] + CW;   // 曲がり角の線の中心
+        double y0 = y1 + lw + P["cross_to"] + LW;   // 曲がり角の線の中心
         c.white.rects.push_back({-W, y1, W, y1 + lw});                           // クロスライン
-        c.white.rects.push_back({-LW, -1, LW, y0 + CW});                         // 中心線
-        if (c.dir > 0) c.white.rects.push_back({-LW, y0 - CW, 4, y0 + CW});
-        else           c.white.rects.push_back({-4, y0 - CW, LW, y0 + CW});
+        c.white.rects.push_back({-LW, -1, LW, y0 + LW});                         // 中心線
+        if (c.dir > 0) c.white.rects.push_back({-LW, y0 - LW, 4, y0 + LW});
+        else           c.white.rects.push_back({-4, y0 - LW, LW, y0 + LW});
         c.surface.rects.push_back({-W, -1, W, y0 + W});
         if (c.dir > 0) c.surface.rects.push_back({-W, y0 - W, 4, y0 + W});
         else           c.surface.rects.push_back({-4, y0 - W, W, y0 + W});
