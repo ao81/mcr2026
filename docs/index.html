@@ -112,6 +112,7 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
 #session legend, #session h2 { font-weight:650; font-size:1.05rem; }
 #session h2 { margin:0; }
 #session p { margin:.5rem 0; }
+#trialLock { margin:.7rem 0 0; padding:.65rem .8rem; background:var(--accent-bg); border-radius:6px; }
 #session .choices { display:flex; gap:.6rem 1.4rem; flex-wrap:wrap; align-items:center; }
 #session input[type=number] { width:5rem; font:inherit; }
 #session input[type=file] { max-width:100%; display:block; margin:.4rem 0 .8rem; }
@@ -164,10 +165,14 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
   <p id="tuneSource" role="status"></p>
   <fieldset><legend>測定する区間</legend>
     <div class="choices">
-      <label>区間の種類 <select id="eventType"><option value="1">クランク</option><option value="4">カーブ</option><option value="2">レーンチェンジ</option><option value="5">通常走行</option><option value="6">総合</option></select></label>
-      <label><span id="numberLabel">何番目のクランク</span> <input type="number" id="eventNumber" min="1" max="999" value="1" aria-describedby="sectionHint"></label>
+      <label>区間の種類 <select id="eventType" aria-describedby="sectionHint trialLockMessage"><option value="1">クランク</option><option value="4">カーブ</option><option value="2">レーンチェンジ</option><option value="5">通常走行</option><option value="6">総合</option></select></label>
+      <label><span id="numberLabel">何番目のクランク</span> <input type="number" id="eventNumber" min="1" max="999" value="1" aria-describedby="sectionHint trialLockMessage"></label>
     </div>
     <p id="sectionHint" aria-live="polite"></p>
+    <div id="trialLock" hidden>
+      <p id="trialLockMessage"></p>
+      <button id="trialEnd">比較を終了・採用値に戻す</button>
+    </div>
   </fieldset>
   <fieldset><legend>調整方法</legend><div class="choices">
     <label><input id="singleMode" name="tuneMethod" type="radio" checked> 1走の記録・診断</label>
@@ -187,7 +192,6 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
     <label>比較用CSVを追加 <input id="trialLog" type="file" accept=".csv,text/csv" multiple></label>
     <output id="trialStatus" aria-live="polite"></output>
     <p>候補が出たら保存・書き込みを行い、同じ区間を再測定します。終了時は採用値に戻して保存します。</p>
-    <button id="trialEnd">比較を終了・採用値に戻す</button>
   </section>
 </section>
 <dialog id="dlgGit">
@@ -478,6 +482,10 @@ function renderWorkspace() {
   $('eventType').disabled = $('eventNumber').disabled = !!active;
   $('numberLabel').textContent = '何番目の'+kind;
   $('sectionHint').textContent = help+' 1 は最初の'+kind+'です。';
+  $('trialLock').hidden = !active;
+  $('trialLockMessage').textContent = active
+    ? '比較中は同じ区間でタイムを測るため、区間と回数を固定しています。別の区間を選ぶには、今の比較を終了してください。'
+    : '';
   $('singlePanel').hidden = comparing;
   $('comparePanel').hidden = !comparing;
   $('singleHint').textContent = singleDiagnosis ? '走行後、microSDの '+prefix+'NNNN.csv を1本読み込むと調整候補を表示します。' : 'この区間の '+prefix+'NNNN.csv を使って設定を調整するには、測定前に「タイム比較」を選んでください。';
