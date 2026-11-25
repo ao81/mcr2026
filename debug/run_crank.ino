@@ -135,7 +135,11 @@ void run_crank_return(bool right) {
     } else {
         apply_table(CRANK_L_RETURN_SENSOR, CRANK_L_RETURN_ACT, CRANK_L_RETURN_N, c);
     }
-    if (right ? (c == 0x06 || c == 0x0e || c == 0x0c) : (c == 0x60 || c == 0x70 || c == 0x30)) {
+    // 中央線がセンサの真ん中付近に見えたら通常走行へ。
+    //   センサが後輪から 0.46m 前にあり、大きくハンドルを切るとセンサは横へ速く動くので、線は真ん中を 1〜2ms で通り過ぎる。
+    //   右クランクなら 00011000 / 00010000 / 00001000 / 00011100 も通常走行へ移る形に加える（CRK0081）
+    if (right ? (c == 0x06 || c == 0x0e || c == 0x0c || c == 0x18 || c == 0x10 || c == 0x08 || c == 0x1c)
+              : (c == 0x60 || c == 0x70 || c == 0x30 || c == 0x18 || c == 0x08 || c == 0x10 || c == 0x38)) {
         led_out(0x0);
         cnt1 = 0;
         pattern = PT_TRACE;
@@ -157,6 +161,14 @@ void run_crank_outside(bool right) {
         apply_table(CRANK_R_OUTSIDE_SENSOR, CRANK_R_OUTSIDE_ACT, CRANK_R_OUTSIDE_N, c);
     } else {
         apply_table(CRANK_L_OUTSIDE_SENSOR, CRANK_L_OUTSIDE_ACT, CRANK_L_OUTSIDE_N, c);
+    }
+    // 真ん中の2つのセンサのどちらかが線を見て、外側の端のセンサ（右クランクなら左端）が白でなければ、中央線の上に来ているので通常走行へ。
+    //   CRK0081：00010111 で中央線を見たのに、この表に形がないので 55° のまま曲がり続けた
+    if ((c & 0x18) != 0 && (c & (right ? 0x80 : 0x01)) == 0) {
+        led_out(0x0);
+        cnt1 = 0;
+        pattern = PT_TRACE;
+        return;
     }
     // 中央線が見えたら復帰処理へ（cnt1 は0にしない）
     // 曲がる側の端だけに線が見えたときも、線はもうセンサの下を通り過ぎて曲がる側にあるので、復帰処理で線へ寄せる
