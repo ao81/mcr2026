@@ -213,6 +213,7 @@ float lane_r_for(float len, float d);
 int scurve_corner_x(float r, float len, float d, float f_line, float fwd, float lat, float* x_out);
 int lane_old_ok(float r, float len, float d, float x_start, float s0);
 int lane_new_ok(float r, float len, float d, float x_start, float f_end);
+int lane_outer_ok(float r, float len, float d, float x_start);
 int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* len_out, float* wait_out);
 int lane_plan(float v, float x_start, float* r_out, float* len_out, float* wait_out);
 float crank_turn_speed_auto(void);

@@ -8,7 +8,7 @@
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
 //       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r s_rad s_deg
 //       cross_to2 line_w2 gap turn1 turn2（crank2）  fric（摩擦で走らない出力 [%]）
-//       sensor_to_axle half_w front ms trace spot dip approach dump
+//       sensor_to_axle sensor_half_w（センサの基板の幅の半分。レーンチェンジでは腕と先も判定） half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
 //   車の動き（後輪の軸の中心で計算）
@@ -24,6 +24,7 @@
 #include "SD.h"
 #include "config.h"
 #include <vector>
+#include <array>
 #include <string>
 #include <set>
 
@@ -79,7 +80,7 @@ static std::map<std::string, double> P = {
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0}, {"surf_w", 0.15},
-    {"fric", MOTOR_FRICTION_PERCENT}, {"steer_gain", 1.0}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
+    {"fric", MOTOR_FRICTION_PERCENT}, {"steer_gain", 1.0}, {"sensor_half_w", SENSOR_HALF_WIDTH_M}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
 };
 
 static Course make_course(const std::string& name) {
@@ -311,7 +312,14 @@ int main(int argc, char** argv) {
                    (double)speed_mps, (double)dist_m, qlat);
         }
         // コースアウト判定（タイヤの外側の4点）
-        double pts[4][2] = {{0, -hw}, {0, hw}, {front, -hw}, {front, hw}};
+        // レーンチェンジは、センサの腕と先（左右の端）も区間の外に出てはいけない（角の2か所に棒が立つ）
+        const double sf = P["sensor_to_axle"], sw = P["sensor_half_w"];
+        std::vector<std::array<double, 2>> pts = {{0, -hw}, {0, hw}, {front, -hw}, {front, hw}};
+        if (c.kind == 1) {
+            for (int i = 1; i <= 4; i++) pts.push_back({front + (sf - front) * i / 5.0, 0});
+            pts.push_back({sf, -sw});
+            pts.push_back({sf, sw});
+        }
         bool out = false;
         for (auto& q : pts) {
             double px = x + q[0] * hx + q[1] * rx, py = y + q[0] * hy + q[1] * ry;
