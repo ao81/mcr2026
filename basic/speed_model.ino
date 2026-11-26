@@ -517,7 +517,19 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
             }
             brake_started = 1;  // 一度ブレーキを始めたら、目標の速さになるまで続ける（全開と交互にならないように）
         }
+#if BRAKE_AT_GRIP
+        // ブレーキの出力は、モデルの減速度がちょうど GRIP_LONG_USE になる値にする（brake_power より強くはしない）。
+        //   brake_power のままだと、モデルは減速度を GRIP_LONG_USE で頭打ちにして計算するが、実際の減速はタイヤとモータで決まり、
+        //   それより強いと目標の速さより下がりすぎ、その後に加速し直す（実車：-100 で 0.97 m/s の予定が 0.58 m/s まで落ちた）。
+        //   この出力なら減速はモータのモデルどおりになり、推定と実際の速さのずれも MOTOR_TAU_S で縮む
+        //   （実際の方が遅いと減速が弱まり、速いと強まる）。目標の速さで1回で止まり、加速し直さない
+        {
+            int pg = power_of_speed(v - MOTOR_TAU_S * GRIP_LONG_USE);
+            return pg < brake_power ? brake_power : pg;
+        }
+#else
         return brake_power;                             // ブレーキ
+#endif
     }
     // 目標の速さの近く：その速さに保つ。
     // 前は「1msで目標にぴったり合わせる出力」（deadbeat_speed）を出していたが、出力を整数に丸めた分だけ目標を少し超え、
@@ -535,11 +547,15 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
 //**********************************************************************
 void crank_speed_control_new(void) {
 #if USE_NEW_CRANK_ANY_COURSE
-    // 曲がり角までの距離を使わない：曲がり角の線を見てからでも間に合う速さ（計算できなければクランクに入る速さ）まで、すぐに落とす
+    // 曲がり角までの距離を使わない：曲がり角の線を見てからでも間に合う速さ（計算できなければクランクに入る速さ）まで落とす
     float v_app = crank_entry_mps;
     if (CRANK_APPROACH_MPS > 0.0f) v_app = CRANK_APPROACH_MPS;
     else if (CRANK_APPROACH_MPS < 0.0f && crank_app_mps > 0.0f) v_app = crank_app_mps;
-    int pa = brake_power_for(0.0f, v_app, CRANK_BRAKE_POWER, 0.0f);
+    // 落とし終わる位置は、規則で曲がり角が一番近い所（クロスラインの終わりから CRANK_RULE_MIN_M）。
+    // それまでは全開で走り、そこでちょうど v_app になるように1回だけブレーキをかける（0 なら前と同じで、すぐにブレーキ）
+    float remain_a = (CRANK_RULE_MIN_M > 0.0f) ? CRANK_RULE_MIN_M - dist_m : 0.0f;
+    float margin_a = (CRANK_RULE_MIN_M > 0.0f) ? CRANK_BRAKE_MARGIN_M : 0.0f;
+    int pa = brake_power_for(remain_a, v_app, CRANK_BRAKE_POWER, margin_a);
     sp(pa, pa);
     return;
 #endif
