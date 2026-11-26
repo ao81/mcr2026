@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ブラウザで動くシミュレータ（tools/course_sim/simulator.html）を作る（tools/course_sim/README.md を参照）
+# ブラウザで動くシミュレータ（tools/course_sim/simulator.html。GitHub Actions は public ブランチの simulator/index.html）を作る（tools/course_sim/README.md を参照）
 #   basic/ と course_sim.cpp を WebAssembly にして、simulator_template.html に埋め込む。
 #   basic/ のコピーを次のように書き換えてからビルドする（basic/ 自体は変えない）
 #     ・config.h の「新しい走行アルゴリズム」より下の数値の #define を、画面から変えられる変数にする
@@ -12,7 +12,8 @@ import base64, datetime, json, os, re, shutil, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIM = os.path.dirname(HERE)
 ROOT = os.path.abspath(os.path.join(SIM, "..", ".."))
-OUT = os.path.join(SIM, "simulator.html")
+# 書き出す場所。GitHub Actions は環境変数 SIM_OUT で public ブランチの simulator/index.html に書く
+OUT = os.environ.get("SIM_OUT") or os.path.join(SIM, "simulator.html")
 CLANG = os.environ.get("CLANG", "clang++")
 
 NUM = r"\(?\s*-?[0-9]+(?:\.[0-9]*)?f?\s*\)?"

@@ -4,7 +4,9 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import tempfile
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -97,6 +99,29 @@ def sync(old, edits):
     return new
 
 
+PAGE_URL = "https://raw.githubusercontent.com/ao81/mcr2026/public/config/"
+PAGES = {}
+
+
+def load_pages():
+    """編集ページ（public ブランチの config/index.html と trial.js）を読む。
+    手元の git に public ブランチがあればそれを使い、なければ GitHub から取ってくる"""
+    names = ("index.html", "trial.js")
+    try:
+        subprocess.run(["git", "-C", str(ROOT), "fetch", "-q", "origin", "public"], timeout=20,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for n in names:
+            PAGES[n] = subprocess.run(["git", "-C", str(ROOT), "show", "origin/public:config/" + n],
+                                      capture_output=True, check=True, timeout=20).stdout
+        return "git の origin/public"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    for n in names:
+        with urllib.request.urlopen(PAGE_URL + n, timeout=20) as r:
+            PAGES[n] = r.read()
+    return PAGE_URL
+
+
 def state(files):
     return dict(revision=revision(files), needsSync=desired(files, {}) != files,
                 files=[dict(path=k, text=files[k].decode()) for k in EDITABLE])
@@ -118,9 +143,9 @@ class Editor(BaseHTTPRequestHandler):
         if not self.allowed():
             return self.reply(403, {})
         if self.path == "/":
-            return self.reply(200, (ROOT / "docs/index.html").read_bytes(), "text/html")
+            return self.reply(200, PAGES["index.html"], "text/html")
         if self.path == "/trial.js":
-            return self.reply(200, (ROOT / "docs/trial.js").read_bytes(), "text/javascript")
+            return self.reply(200, PAGES["trial.js"], "text/javascript")
         if self.path == "/api/config":
             try:
                 return self.reply(200, state(snapshot()))
@@ -157,6 +182,7 @@ if __name__ == "__main__":
     if args.sync:
         sync(snapshot(), {})
     else:
+        print("編集ページを読みました: " + load_pages(), flush=True)
         with HTTPServer(("127.0.0.1", args.port), Editor) as server:
             print(f"Brave / Chrome / Edge: http://127.0.0.1:{server.server_port}/", flush=True)
             server.serve_forever()

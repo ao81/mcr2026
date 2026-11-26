@@ -4,7 +4,7 @@
 新しい走行アルゴリズム（`config.h` の `USE_NEW_*`）が計算どおりに動くか、元のプログラムと比べて速いか、車の値がずれたときに失敗しないかを、実機の前に確かめるために使います。
 Arduino IDE では使いません（`basic/` フォルダの外にあるので、書き込むプログラムには入りません）。
 
-**コマンドを使わずに試すときは、`tools/course_sim/simulator.html` をダブルクリックしてブラウザで開いてください（4 章）。** コース、スイッチ、`config.h` の値を画面で選ぶと、その場で走らせて、車の動きをアニメーションとグラフで表示します。何も入れなくても動き、インターネットにつながっていなくても使えます。
+**コマンドを使わずに試すときは、Web版のシミュレータ（https://ao81.github.io/mcr2026/simulator/）をブラウザで開いてください（4 章）。** コース、スイッチ、`config.h` の値を画面で選ぶと、その場で走らせて、車の動きをアニメーションとグラフで表示します。何も入れなくても動きます。ページを保存すれば、インターネットにつながっていなくても使えます。
 
 > この模擬は実機の代わりにはなりません。タイヤやモータの動きを簡単な式で置き換えているので、実機では違う結果になることがあります。分かるのは「計算の考え方が合っているか」と「どの値がずれると失敗しやすいか」です。
 
@@ -137,7 +137,7 @@ tools/course_sim/run.sh all lane_r trace=1 | less
 
 ## 4. ブラウザで動かす（simulator.html）
 
-`tools/course_sim/simulator.html` をダブルクリックすると、ブラウザ（Edge、Chrome、Firefox など）で開きます。
+https://ao81.github.io/mcr2026/simulator/ をブラウザ（Edge、Chrome、Firefox など）で開きます。ファイルは `public` ブランチの `simulator/index.html` です。
 模擬のプログラムと `basic/` の走行プログラムがこの1つのファイルに入っているので、ほかに入れるものはありません。インターネットにつながっていなくても動きます。
 
 開くと、左クランクを A「元のプログラム」と B「すべて新しく」の2通りで走らせた結果が出ます。設定を変えると、すぐに走らせ直します（1回 0.1 秒ほど）。
@@ -217,7 +217,7 @@ tools/course_sim/run.sh all lane_r trace=1 | less
 
 ### 4-5. simulator.html を作り直す
 
-**ふつうは自分で作り直す必要はありません。** `basic/` を変えて GitHub の main に push すると、GitHub Actions（`.github/workflows/update-sim.yml`）が数分で `simulator.html` を作り直し、main にコミットします。同時に `debug/` も `basic/` に合わせます（`debug/sync.sh` と同じ）。手元では `git pull` すると最新の `simulator.html` になります。画面の上の「basic/ のコミット」が push したコミットと同じなら、最新です。
+**ふつうは自分で作り直す必要はありません。** `basic/` を変えて GitHub の main に push すると、GitHub Actions（`.github/workflows/update-sim.yml`）が数分で `public` ブランチの `simulator/index.html` を作り直してコミットし、Web版が最新になります。同時に main の `debug/` も `basic/` に合わせます（`debug/sync.sh` と同じ）。画面の上の「basic/ のコミット」が push したコミットと同じなら、最新です。
 動いたかどうかは GitHub のリポジトリの「Actions」タブで見られます。そこの「模擬を最新の basic/ に更新」→「Run workflow」で、手で動かすこともできます。
 
 push する前に手元で試したいときは、Linux か Windows の WSL（Ubuntu）で、次を実行します。
@@ -227,7 +227,7 @@ sudo apt install clang lld wasi-libc libc++-18-dev-wasm32 libclang-rt-18-dev-was
 python3 tools/course_sim/web/build.py
 ```
 
-`tools/course_sim/simulator.html` が新しくなります（数秒かかります）。できたファイルをコミットしておくと、ほかの PC でもダブルクリックで使えます。
+`tools/course_sim/simulator.html` ができます（数秒かかります）。ダブルクリックで開けます。このファイルは `.gitignore` に入っていて、main にはコミットしません。
 
 ### 4-6. 中身
 
