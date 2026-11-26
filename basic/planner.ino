@@ -311,6 +311,36 @@ int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* le
     return 0;
 }
 
+//**********************************************************************
+// クイッと曲がる経路（LANE_QUICK_LAT_MPS2）
+//   速さ v で、横の加速度がちょうど LANE_QUICK_LAT_MPS2 になる半径 r = v² ÷ a の S字にする（一番緩い経路 len_lo より短い）。
+//   長さは 2R(1 − cos φ) = d、2R·sin φ = L から L = √(4dR − d²)。曲がり始める所は一番緩い経路と同じ（wait）。
+//   短いほど早く新しい車線に入り終える（区間の終わり・2本目の棒には余裕が増える）が、向きのずれが大きくなるので、
+//   古い車線の端（1本目の棒）とセンサの先（新しい車線の向こう側の端）を調べ、越えるなら越えない長さまで延ばす
+//**********************************************************************
+static int lane_quick_ok(float len, float d, float x_start, float s0, float f_end) {
+    float r = lane_r_for(len, d);
+    return lane_old_ok(r, len, d, x_start, s0) && lane_outer_ok(r, len, d, x_start) && lane_new_ok(r, len, d, x_start, f_end);
+}
+
+float lane_quick_len(float v, float d, float x_start, float r_lo, float len_lo, float wait) {
+    float rq = v * v / LANE_QUICK_LAT_MPS2;
+    float rmin = radius_of_angle(LANE_QUICK_MAX_ANGLE);
+    if (rq < rmin) rq = rmin;
+    if (rq >= r_lo || 4.0f * d * rq <= d * d) return len_lo;
+    float lq = sqrtf(4.0f * d * rq - d * d);
+    float u = wait + v * servo_delay_s(angle_for_radius(rq));
+    float s0 = SENSOR_TO_REAR_AXLE_M - LANE_PRE_M - u;
+    float f_end = SENSOR_TO_REAR_AXLE_M + LANE_SECTION_M - u;
+    if (lane_quick_ok(lq, d, x_start, s0, f_end)) return lq;
+    float lo = lq, hi = len_lo;                    // 越えない一番短い長さを二分法で探す
+    for (int i = 0; i < 10; i++) {
+        float mid = (lo + hi) * 0.5f;
+        if (lane_quick_ok(mid, d, x_start, s0, f_end)) hi = mid; else lo = mid;
+    }
+    return hi;
+}
+
 int lane_plan(float v, float x_start, float* r_out, float* len_out, float* wait_out) {
     float delay = servo_delay_s(SERVO_MAX_ANGLE * 0.25f);
     float r = 0.0f, len = 0.0f, wait = 0.0f;

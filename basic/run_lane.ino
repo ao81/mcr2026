@@ -244,6 +244,12 @@ bool lane_start_scurve(int stage, bool right) {
     if (v_chk > v_turn * PLAN_OVERSPEED) return false; // 速すぎて、この円弧では横すべりする
 
     float d = LANE_SHIFT_M - x_start;              // 横に動く距離
+    if (LANE_QUICK_LAT_MPS2 > 0.0f) {
+        // 一番緩い経路の代わりに、横の加速度が LANE_QUICK_LAT_MPS2 になる短い経路で、早く横に動き終える
+        len = lane_quick_len(v_chk, d, x_start, r, len, wait);
+        r = lane_r_for(len, d);
+        v_turn = corner_speed(1.0f / r);
+    }
     float phi = 2.0f * atanf(d / len);             // 円弧1つで回る角度 [rad]
     float ang = angle_for_radius(r);
     plan_wait_m = wait;
