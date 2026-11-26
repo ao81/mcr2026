@@ -266,6 +266,7 @@ const COURSE_OPTS = [
   { k: "approach", label: "スタートから特別な線（カーブは入口）まで [m]", def: 1.5 },
   { k: "cross_to", label: "クロスラインの終わりから曲がり角まで [m]", cfg: "CROSS_TO_CRANK_M", only: "crank" },
   { k: "half_to", label: "ハーフラインの終わりから中央線の切れ目まで [m]", cfg: "HALF_TO_LANE_M", only: "lane" },
+  { k: "lane_pre", label: "合流部分の始まりから切れ目まで [m]", cfg: "LANE_PRE_M", only: "lane" },
   { k: "lane_sec", label: "切れ目から新しい車線だけになるまで [m]", cfg: "LANE_SECTION_M", only: "lane" },
   { k: "lane_new", label: "切れ目から新しい車線の線が始まるまで [m]", def: 0, only: "lane" },
   { k: "curve_r", label: "カーブの半径 [m]（180° のカーブ）", def: 0.45, only: "curve" },

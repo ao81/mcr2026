@@ -6,7 +6,7 @@
 //                （クランクごとに距離が違うコース。config.h の COURSE_LIST を試すときに使う。turn は +1 右、-1 左）
 //       s_r / s_l : 直線 → 右（左）へ s_deg 度曲がる半径 s_rad の円弧 → 反対へ s_deg 度の円弧 → 直線（S字）
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
-//       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r s_rad s_deg
+//       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_pre（合流部分の始まりから切れ目まで） lane_new curve_r s_rad s_deg
 //       cross_to2 line_w2 gap turn1 turn2（crank2）  fric（摩擦で走らない出力 [%]）
 //       sensor_to_axle sensor_half_w（センサの基板の幅の半分。レーンチェンジでは腕と先も判定） half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
@@ -77,7 +77,7 @@ struct Course {
 static std::map<std::string, double> P = {
     {"v_max", V_MAX_MPS}, {"tau", MOTOR_TAU_S}, {"grip_lat", GRIP_LAT_MPS2}, {"grip_long", GRIP_LONG_MPS2},
     {"servo_dps", SERVO_SPEED_DPS}, {"servo_dead", SERVO_DEAD_S}, {"line_w", 0.032}, {"cross_to", CROSS_TO_CRANK_M}, {"half_to", HALF_TO_LANE_M},
-    {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
+    {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"lane_pre", LANE_PRE_M}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0}, {"surf_w", 0.15},
     {"fric", MOTOR_FRICTION_PERCENT}, {"steer_gain", 1.0}, {"sensor_half_w", SENSOR_HALF_WIDTH_M}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
@@ -137,7 +137,7 @@ static Course make_course(const std::string& name) {
         c.white.rects.push_back({-LW, -1, LW, ye});
         c.white.rects.push_back({d - LW, ye + P["lane_new"], d + LW, ye + 4});    // 新しい車線の線
         c.surface.rects.push_back({-W, -1, W, ye});
-        c.surface.rects.push_back({std::min(-W, d - W), ye, std::max(W, d + W), ye + ls});
+        c.surface.rects.push_back({std::min(-W, d - W), ye - P["lane_pre"], std::max(W, d + W), ye + ls});   // 合流部分（中央線は真ん中あたりで切れる）
         c.surface.rects.push_back({d - W, ye + ls, d + W, ye + 4});
         c.finish = ye + 2.0;
     } else if (name.rfind("s_", 0) == 0) {

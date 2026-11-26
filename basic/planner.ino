@@ -219,7 +219,7 @@ int scurve_corner_x(float r, float len, float d, float f_line, float fwd, float 
     return 1;
 }
 
-// ① 古い車線からはみ出さないか（s0 = 曲がり始めから中央線の終わりまでの前向きの距離）
+// ① 古い車線からはみ出さないか（s0 = 曲がり始めから合流部分の始まりまでの前向きの距離。マイナスならもう合流部分にいる）
 // レーンチェンジでは、センサの腕と先も区間の外に出てはいけない（角の2か所に棒が立つ）。
 // 腕は車体の前（CAR_FRONT_M）からセンサまでの真ん中の線、先はセンサの基板の左右の端（SENSOR_HALF_WIDTH_M）
 #define LANE_ARM_N 4
@@ -288,7 +288,7 @@ int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* le
     for (int k = 0; k <= 8; k++) {               // 曲がり始める前に直進する距離 wait を 0, 1cm, 2cm … と試す
         float wait = k * 0.010f;
         float u = v * delay + wait;              // センサが中央線の終わりを見つけてから、実際に曲がり始めるまでの距離
-        float s0 = SENSOR_TO_REAR_AXLE_M - u;
+        float s0 = SENSOR_TO_REAR_AXLE_M - LANE_PRE_M - u;   // 合流部分は中央線が切れる所の LANE_PRE_M 手前から始まる
         float f_end = SENSOR_TO_REAR_AXLE_M + LANE_SECTION_M - u;
         if (f_end <= 0.0f) return 0;
         // ②を満たす一番長い L を二分法で求める（短いほど早く横に動き終わるので②は満たしやすい）
