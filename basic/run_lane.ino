@@ -251,6 +251,9 @@ bool lane_start_scurve(int stage, bool right) {
     // サーボが +角度 から −角度 へ動き終わるまでの真ん中で、曲がる向きが変わったとみなせる。
     // その分だけ早く切り返すと、1つ目と2つ目の円弧の長さがそろう（終わりの位置は 2 × 円弧の長さ のまま）
     plan_switch_m = plan_len_m - v_turn * ang / (2.0f * SERVO_SPEED_DPS);
+    lane_end_m = 2.0f * plan_len_m;
+    lane_sw0_m = plan_switch_m;
+    lane_cross_m = (LANE_CROSS_ADJUST_M > 0.0f) ? lane_cross_plan(r, phi, d, v_turn, ang) : -1.0f;
     plan_speed_mps = v_turn;
     plan_angle = ang;
     reset_distance();                              // ここから距離を数える
@@ -263,6 +266,64 @@ bool lane_start_scurve(int stage, bool right) {
 }
 
 //**********************************************************************
+// S字の1つ目の円弧で、センサが新しい車線の中央線の真上を通る所（曲がり始めてからの距離 [m]）。通らなければ −1
+//   1つ目の円弧で向きが α 変わった時、センサ（後輪の軸の SENSOR_TO_REAR_AXLE_M 前）の横のずれは
+//     r(1 − cos α) + SENSOR_TO_REAR_AXLE_M·sin α
+//   これが新しい線までの横の距離 d になる α を二分法で求める。サーボが効くまでの遅れの間に進む分を足す
+//**********************************************************************
+float lane_cross_plan(float r, float phi, float d, float v, float ang) {
+    const float sf = SENSOR_TO_REAR_AXLE_M;
+    if (r * (1.0f - cosf(phi)) + sf * sinf(phi) < d) return -1.0f;
+    float lo = 0.0f, hi = phi;
+    for (int i = 0; i < 12; i++) {
+        float mid = (lo + hi) * 0.5f;
+        if (r * (1.0f - cosf(mid)) + sf * sinf(mid) < d) lo = mid; else hi = mid;
+    }
+    lane_cross_lag_m = v * servo_delay_s(ang);
+    return r * lo + lane_cross_lag_m;
+}
+
+//**********************************************************************
+// S字の1つ目の円弧の間に、センサが新しい中央線の真上を通った所を見て、切り返す所と終わりをずらす（LANE_CROSS_ADJUST_M）
+//   実際の曲がり方が計算より弱い（サーボの遊び・タイヤの横すべりなど）と、新しい線を通るのが計算より遅れる。
+//   遅れた距離 Δ だけ切り返す所と終わりを後ろへずらし、残りはハンドル角度を直して計算どおりの半径で曲がる。
+//   計算より早く通ったとき（曲がり方が強い）は、前へずらして角度を小さくする。ずらすのは ±LANE_CROSS_ADJUST_M まで
+//   2026-11-26：実車でレーンチェンジを直進してコースアウトした。S字は約 6°の小さなハンドルで、センサを見ずに 1.3m 走るので、
+//   模擬では、曲がり方が 15% 弱いだけで7回とも外に出た
+//**********************************************************************
+void lane_cross_check(float s, bool right) {
+    unsigned char c = sensor_inp(MASK4_4);
+    bool crossed = false;
+    if (c != 0x00 && s > lane_cross_m * 0.5f) {
+        float pos = line_position_m(c);                            // プラスが右
+        crossed = right ? (pos <= 0.0f) : (pos >= 0.0f);           // 線が真ん中まで来た（右へ移るときは、線はセンサの右から左へ流れる）
+    }
+    if (!crossed && s < lane_cross_m + LANE_CROSS_ADJUST_M) {
+        // まだ通っていない。計算の切り返しの所まで来ても、通るまで（最大 LANE_CROSS_ADJUST_M 遅れまで）1つ目の円弧を続ける
+        if (s >= plan_switch_m - 0.001f) plan_switch_m = s + 0.002f;
+        return;
+    }
+    float delta = s - lane_cross_m;                                // プラス：計算より遅れて通った
+    if (delta > LANE_CROSS_ADJUST_M) delta = LANE_CROSS_ADJUST_M;
+    if (delta < -LANE_CROSS_ADJUST_M) delta = -LANE_CROSS_ADJUST_M;
+    // 新しい線を通った所では、車の向きは計算の通る所と同じで、後輪の横のずれは計算以上になっている（センサの横のずれは
+    // ほとんど SENSOR_TO_REAR_AXLE_M·sin α で決まるため）。つまり計算の経路を Δ 遅れて走っているのと同じなので、
+    // 切り返す所と終わりを Δ 後ろへずらし、ここからは計算どおりの半径で曲がるように、ハンドル角度を効きの比 g で直す。
+    //   g ≒ 計算で通る距離 ÷ 実際に通った距離（サーボが効くまでに進む分は除く）。0.6〜1.4 倍まで
+    float lag = lane_cross_lag_m;
+    float g = (lane_cross_m - lag) / (lane_cross_m + delta - lag);
+    if (g < 0.6f) g = 0.6f;
+    if (g > 1.4f) g = 1.4f;
+    plan_angle = angle_for_radius(radius_of_angle(plan_angle) * g);
+    float sw = lane_sw0_m + delta;
+    if (sw < s) sw = s;                                            // 早く通ったときは、すぐ切り返す
+    delta = sw - lane_sw0_m;
+    plan_switch_m = sw;
+    lane_end_m = 2.0f * plan_len_m + delta;
+    lane_cross_m = 0.0f;                                           // 1回だけ
+}
+
+//**********************************************************************
 // pattern 360〜370 / 660〜670 : 計算した2つの円弧で隣の車線へ（USE_NEW_LANE_STEER）
 //   plan_wait_m だけ直進 → 1つ目の円弧（車線を変える向き）→ 2つ目の円弧（逆向き）で、向きを元に戻しながら横にずれる
 //   この間はセンサを見ない（新しい線が斜めに見えても、経路を最後まで走る）
@@ -270,13 +331,14 @@ bool lane_start_scurve(int stage, bool right) {
 void run_lane_scurve(int stage, bool right) {
     const int dir = right ? 1 : -1;
     float s = dist_m - plan_wait_m;
+    if (s >= 0.0f && lane_cross_m > 0.0f) lane_cross_check(s, right);
     if (s < 0.0f) {
         ha(0);
         drive_at(plan_speed_mps, 0);
     } else if (s < plan_switch_m) {
         ha_deg(dir * plan_angle);
         drive_at(plan_speed_mps, dir * plan_angle);
-    } else if (s < 2.0f * plan_len_m) {
+    } else if (s < lane_end_m) {
         ha_deg(-dir * plan_angle);
         drive_at(plan_speed_mps, -dir * plan_angle);
     } else {

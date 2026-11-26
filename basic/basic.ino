@@ -189,6 +189,8 @@ void run_lane_spost(int stage, bool right);
 bool lane_start_scurve(int stage, bool right);
 void lane_speed_control(void);
 int lane_pt(bool right, int pt_right, int pt_left);
+float lane_cross_plan(float r, float phi, float d, float v, float ang);
+void lane_cross_check(float s, bool right);
 bool lane_new_line_found(unsigned char c, bool right);
 int lane_cross_recheck(bool right);
 void lane_steer_output(int stage, bool right);
@@ -297,6 +299,10 @@ float crank_entry_mps;                 // クランクに入る速さ [m/s]（pl
 float lane_entry_mps;                  // 車線変更を始める速さ [m/s]（同上）
 volatile float plan_wait_m;            // 計算した経路：曲がり始めるまでに直進する距離 [m]
 volatile float plan_len_m;             // 計算した経路：円弧1つの長さ [m]
+volatile float lane_end_m;            // レーンチェンジ：S字を終える所 [m]（LANE_CROSS_ADJUST_M でずらす）
+volatile float lane_sw0_m;            // レーンチェンジ：計算した切り返しの所 [m]
+volatile float lane_cross_m;          // レーンチェンジ：センサが新しい線の真上を通るはずの所 [m]（0 以下は見ない）
+volatile float lane_cross_lag_m;      // レーンチェンジ：S字の始めにサーボが効くまでに進む距離 [m]
 volatile float plan_switch_m;          // 計算した経路：レーンチェンジで逆向きにハンドルを切る所 [m]
 volatile float plan_speed_mps;         // 計算した経路：走る速さ [m/s]
 volatile float plan_angle;             // 計算した経路：ハンドル角度 [度]（向きは呼ぶ側で付ける）

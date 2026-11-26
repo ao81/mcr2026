@@ -37,7 +37,7 @@ volatile uint32_t GTIOC1B, GTIOC6B, GTIOC3A;
 
 extern volatile int pattern;
 extern volatile float speed_mps;
-extern volatile float dist_m, plan_wait_m, plan_len_m, plan_speed_mps;
+extern volatile float dist_m, plan_wait_m, plan_len_m, plan_speed_mps, plan_switch_m, lane_end_m;
 extern volatile float plan_angle;
 extern volatile float obs_z1, obs_z2, obs_z3, servo_est_deg;
 void setup();
@@ -79,7 +79,7 @@ static std::map<std::string, double> P = {
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0}, {"surf_w", 0.15},
-    {"fric", MOTOR_FRICTION_PERCENT}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
+    {"fric", MOTOR_FRICTION_PERCENT}, {"steer_gain", 1.0}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
 };
 
 static Course make_course(const std::string& name) {
@@ -283,7 +283,7 @@ int main(int argc, char** argv) {
             else if (fabs(steer - wob_ext) >= 2.0) { wob_n++; wob_ext = steer; wob_dir = -wob_dir; }
         }
         wob_prev = steer;
-        double k = tan(steer * M_PI / 180) / wb;       // + が右
+        double k = tan(steer * P["steer_gain"] * M_PI / 180) / wb;       // + が右（steer_gain：実際のタイヤの角度 ÷ 指令の角度）
         // 速さ
         const double pa = (pl + pr) * 0.5, fr = P["fric"];
         double u = (pa - fr) / (100 - fr) * vmax;      // 出力が fric [%] 以下では摩擦に負けて走らない（既定は config.h の MOTOR_FRICTION_PERCENT）
@@ -328,9 +328,9 @@ int main(int argc, char** argv) {
             break;
         }
         if ((int)P["trace"] && (t % 10 == 0))
-            printf("t=%ld p=%d s=%02x x=%.3f y=%.3f psi=%.1f v=%.2f steer=%.1f(est %.1f) cmd=%.1f pl=%.0f pr=%.0f est=%.2f dist=%.3f obs(%.1fmm %.3f %.2f) plan(wait=%.3f len=%.3f v=%.2f ang=%.1f)\n",
+            printf("t=%ld p=%d s=%02x x=%.3f y=%.3f psi=%.1f v=%.2f steer=%.1f(est %.1f) cmd=%.1f pl=%.0f pr=%.0f est=%.2f dist=%.3f obs(%.1fmm %.3f %.2f) plan(wait=%.3f len=%.3f v=%.2f ang=%.1f sw=%.3f end=%.3f)\n",
                    t - t_start, pattern, s, x, y, psi * 180 / M_PI, v, steer, (double)servo_est_deg, ang_cmd, pl, pr, speed_mps, dist_m,
-                   obs_z1 * 1000, (double)obs_z2, (double)obs_z3, plan_wait_m, plan_len_m, plan_speed_mps, plan_angle);
+                   obs_z1 * 1000, (double)obs_z2, (double)obs_z3, plan_wait_m, plan_len_m, plan_speed_mps, plan_angle, plan_switch_m, lane_end_m);
         // ゴール
         bool fin = false;
         if (c.kind == 0) fin = (c.dir > 0) ? (x >= c.finish) : (x <= -c.finish);
