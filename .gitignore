@@ -4,3 +4,4 @@
 
 # ブラウザ版シミュレータ（public ブランチの simulator/index.html に置く。手元で作ったものはコミットしない）
 tools/course_sim/simulator.html
+__pycache__/
