@@ -105,10 +105,12 @@ const Act CRANK_L_SLOW_ACT[CRANK_L_SLOW_N] = {
 };
 
 // 左クランク 中央線への復帰 (pattern 120)
+// 2026-11-26：内輪 0 / 15 / 30 → 36 / 40 / 46。出力 28%（MOTOR_FRICTION_PERCENT）以下ではタイヤは回らず、内輪がブレーキになって、
+//   10000001 のまま這うように進んでいた（CRK0109）。ハンドル角度の円で内輪と外輪の速さの比になる出力にした
 #define CRANK_L_RETURN_N 7
 const uint8_t CRANK_L_RETURN_SENSOR[CRANK_L_RETURN_N] = { 0x00, 0x83, 0x81, 0xc1, 0x80, 0xc0, 0xe0 };
 const Act CRANK_L_RETURN_ACT[CRANK_L_RETURN_N] = {
-    AM(-50,   0,  50), AM(-50,  15,  60), AM(-50,  15,  60), AM(-50,  15,  60), AM(-45,  30,  70), AM(-40,  50,  85), AM(-35,  70, 100),
+    AM(-50,  36,  50), AM(-50,  40,  60), AM(-50,  40,  60), AM(-50,  40,  60), AM(-45,  46,  70), AM(-40,  50,  85), AM(-35,  70, 100),
 };
 
 // 左クランク 外側へはみ出した時 (pattern 121)
@@ -135,10 +137,12 @@ const Act CRANK_R_SLOW_ACT[CRANK_R_SLOW_N] = {
 };
 
 // 右クランク 中央線への復帰 (pattern 160)
+// 2026-11-26：内輪 0 / 15 / 30 → 36 / 40 / 46。出力 28%（MOTOR_FRICTION_PERCENT）以下ではタイヤは回らず、内輪がブレーキになって、
+//   10000001 のまま這うように進んでいた（CRK0109）。ハンドル角度の円で内輪と外輪の速さの比になる出力にした
 #define CRANK_R_RETURN_N 7
 const uint8_t CRANK_R_RETURN_SENSOR[CRANK_R_RETURN_N] = { 0x00, 0xc1, 0x81, 0x83, 0x01, 0x03, 0x07 };
 const Act CRANK_R_RETURN_ACT[CRANK_R_RETURN_N] = {
-    AM( 50,  50,   0), AM( 50,  60,  15), AM( 50,  60,  15), AM( 50,  60,  15), AM( 45,  70,  30), AM( 40,  85,  50), AM( 35, 100,  70),
+    AM( 50,  50,  36), AM( 50,  60,  40), AM( 50,  60,  40), AM( 50,  60,  40), AM( 45,  70,  46), AM( 40,  85,  50), AM( 35, 100,  70),
 };
 
 // 右クランク 外側へはみ出した時 (pattern 161)

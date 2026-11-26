@@ -238,6 +238,7 @@ void correct_lane_speed_by_distance(void);
 float braking_distance(float v, float v_target, int brake_power);
 float deadbeat_speed(float v, float v_target, float k_abs);
 int power_of_speed(float u);
+float speed_of_power(float p);
 int brake_power_for(float remain_m, float v_target, int brake_power, float margin_m);
 void crank_speed_control_new(void);
 void lane_speed_control_new(void);

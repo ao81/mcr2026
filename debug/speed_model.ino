@@ -63,7 +63,7 @@ void speed_model_update(void) {
         steady_power = power;
         steady_ms = 0;
     }
-    float target = power / 100.0f * v_max_mps;
+    float target = speed_of_power(power);
     float v = speed_mps;
     float a = (target - v) / MOTOR_TAU_S;
     float k = curvature_of_angle(log_raw.ang);
@@ -88,6 +88,7 @@ void speed_model_update(void) {
     if (a > a_up) a = a_up;                                   // タイヤがすべるほどの加速はできない
     if (a < -GRIP_LONG_USE) a = -GRIP_LONG_USE;               // ブレーキは余裕をみた値（遅めに減速すると考える）
     v = v + a * dt;
+    if (v < 0.0f && power >= 0.0f) v = 0.0f;                  // 摩擦で止まる（前へ出力していて後ろへは進まない）
     if (!finite_f(v)) v = 0.0f;                               // config.h の値がおかしいときに、計算が壊れたままにならないように
     speed_mps = v;
     dist_m = dist_m + v * dt;
@@ -378,7 +379,7 @@ void reset_distance(void) {
 //**********************************************************************
 float braking_distance(float v, float v_target, int brake_power) {
     if (v <= v_target) return 0.0f;
-    float vb = brake_power / 100.0f * v_max_mps;
+    float vb = speed_of_power((float)brake_power);
     if (vb >= v_target) return 1.0e6f;                // このブレーキでは目標の速さまで落ちない
     float s = 0.0f;
     float v1 = vb + MOTOR_TAU_S * GRIP_LONG_USE;      // これより速いと減速度はグリップで決まる
@@ -405,13 +406,22 @@ float deadbeat_speed(float v, float v_target, float k_abs) {
     // ブレーキ側は制限しない。推定した速さが実際より速いとき、ブレーキが弱くなるのを避けるため
     // （グリップを超える分はタイヤがすべり、減速度は GRIP_LONG_USE 程度になる。モデルもそう計算する）
     if (u > v_max_mps) u = v_max_mps;
-    if (u < -v_max_mps) u = -v_max_mps;
+    if (u < speed_of_power(-100.0f)) u = speed_of_power(-100.0f);   // 出力 -100% で近づく速さ（摩擦の分だけ -v_max_mps より小さい）
     return u;
 }
 
 // 指令の速さ [m/s] を出力 [%] に直す
+//**********************************************************************
+// 出力 [%] と、その出力を出し続けたときに近づく速さ [m/s] の関係
+//   出力が MOTOR_FRICTION_PERCENT 以下では、摩擦に負けて走らない（2026-11-26 実車：39% で 0.26 m/s、54% で 0.6〜0.7 m/s、100% で 1.8 m/s）。
+//   速さ = v_max_mps × (出力 − F) ÷ (100 − F)。出力が F より小さいと、マイナスの速さ（＝減速）に向かう
+//**********************************************************************
+float speed_of_power(float p) {
+    return v_max_mps * (p - MOTOR_FRICTION_PERCENT) / (100.0f - MOTOR_FRICTION_PERCENT);
+}
+
 int power_of_speed(float u) {
-    float p = u / v_max_mps * 100.0f;
+    float p = MOTOR_FRICTION_PERCENT + u / v_max_mps * (100.0f - MOTOR_FRICTION_PERCENT);
     if (!finite_f(p)) return 0;                                // 計算が壊れたときは出力しない
     int i = (int)(p >= 0.0f ? p + 0.5f : p - 0.5f);
     return clamp_int(i, -100, 100);
@@ -554,7 +564,7 @@ void traction_limit(int* power_l, int* power_r) {
     float wheel[2] = { v * (1.0f + k * TREAD_M * 0.5f), v * (1.0f - k * TREAD_M * 0.5f) };
     int* power[2] = { power_l, power_r };
     for (int i = 0; i < 2; i++) {
-        float hi = (wheel[i] + MOTOR_TAU_S * a_up) / v_max_mps * 100.0f;
+        float hi = MOTOR_FRICTION_PERCENT + (wheel[i] + MOTOR_TAU_S * a_up) / v_max_mps * (100.0f - MOTOR_FRICTION_PERCENT);
         int p = *power[i];
         if (p > hi) p = (int)floorf(hi);
         *power[i] = clamp_int(p, -100, 100);
@@ -652,7 +662,7 @@ void trace_motor_preview(float k_ahead) {
     if (u > u_hi) u = u_hi;
     if (u < u_lo) u = u_lo;
     if (u > v_max_mps) u = v_max_mps;
-    if (u < -v_max_mps) u = -v_max_mps;
+    if (u < speed_of_power(-100.0f)) u = speed_of_power(-100.0f);   // 出力 -100% で近づく速さ（摩擦の分だけ -v_max_mps より小さい）
     drive_center(u, k_act);
 }
 

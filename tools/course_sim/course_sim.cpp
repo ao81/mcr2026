@@ -7,7 +7,7 @@
 //       s_r / s_l : 直線 → 右（左）へ s_deg 度曲がる半径 s_rad の円弧 → 反対へ s_deg 度の円弧 → 直線（S字）
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
 //       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_new curve_r s_rad s_deg
-//       cross_to2 line_w2 gap turn1 turn2（crank2）
+//       cross_to2 line_w2 gap turn1 turn2（crank2）  fric（摩擦で走らない出力 [%]）
 //       sensor_to_axle half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
@@ -79,7 +79,7 @@ static std::map<std::string, double> P = {
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0}, {"surf_w", 0.15},
-    {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
+    {"fric", MOTOR_FRICTION_PERCENT}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
 };
 
 static Course make_course(const std::string& name) {
@@ -285,7 +285,8 @@ int main(int argc, char** argv) {
         wob_prev = steer;
         double k = tan(steer * M_PI / 180) / wb;       // + が右
         // 速さ
-        double u = (pl + pr) * 0.5 / 100 * vmax;
+        const double pa = (pl + pr) * 0.5, fr = P["fric"];
+        double u = (pa - fr) / (100 - fr) * vmax;      // 出力が fric [%] 以下では摩擦に負けて走らない（既定は config.h の MOTOR_FRICTION_PERCENT）
         double a = (u - v) / tau;
         if (a > gx) a = gx;                              // タイヤが出せる前後の力は grip_long まで（それ以上は空回り・すべり）
         if (a < -gx) a = -gx;
@@ -297,6 +298,7 @@ int main(int argc, char** argv) {
         if (q > 1.02) slip_ms++;                         // 2% を超えてグリップが足りない時間
         if (q > 1.0) { k /= q; a /= q; }
         v += a * dt;
+        if (v < 0 && pa >= 0) v = 0;                    // 摩擦で止まる（前へ出力していて後ろへは進まない）
         x += v * hx * dt; y += v * hy * dt;
         psi -= v * k * dt;                               // 右に曲がると psi は減る
         if (v > v_peak) v_peak = v;
