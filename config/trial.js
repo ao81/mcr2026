@@ -131,8 +131,9 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
   const requirements = {CRANK_QUICK:['CRANK_BRAKE','CRANK_TURN'],LANE_BRAKE:['LANE_STEER'],LANE_DISTANCE:['LANE_STEER'],
     LANE_DOWN_ONLY:['LANE_DISTANCE'],LINE_SHAPE:['STEER'],CURVE_PREVIEW:['TRACE_SPEED']};
   if (!get('CRANK_ENTRY_MPS')) requirements.CRANK_BRAKE=['CRANK_TURN'];
-  specs(get('USE_NEW_VMAX_LEARN'),[['VMAX_LEARN_SD',0.05,0.05,1],['VMAX_DRIFT_SD',0.005,0,0.2],
-    ['SPEED_GRIP_ERR',0.02,0,0.5]]);
+  specs(get('USE_NEW_VMAX_LEARN'),[['VMAX_LEARN_MIN_GAIN',0.02,0,1],['VMAX_LEARN_RANGE',0.01,0.02,0.5],
+    ['VMAX_STEADY_MS',-10,100,2000],['VMAX_STEADY_TOL',0.5,0.5,10],
+    ['VMAX_STEADY_MIN_RATIO',0.05,0.1,0.9],['VMAX_STEADY_MAX_RATIO',0.05,1.1,3]]);
   const switches = ['TRACTION','VMAX_LEARN'];
   if (trace) switches.push('TRACE_SPEED','CURVE_SPEED','STEER','LINE_SHAPE','CURVE_PREVIEW');
   if (crank) switches.push('CRANK_QUICK','CRANK_BRAKE','CRANK_TURN');
