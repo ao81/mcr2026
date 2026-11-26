@@ -119,17 +119,18 @@ const int LANE_RAMP[LANE_STEPS] = {
 #define USE_NEW_TRACTION        0   // 加速の出力を、タイヤが空回りしない範囲に制限する
                                     //   2026-11-26 から STEER・LINE_SHAPE・TRACE_SPEED・CURVE_SPEED・CURVE_PREVIEW の5つを 1：カーブで表のハンドルが 2°と11°を行き来して
                                     //   ふらついていたのを、線の形の推定から決めた滑らかなハンドルにし、横すべりしない限り出力100%のまま曲がる（docs/tuning_guide.md 8 章の最後）
-#define USE_NEW_TRACE_SPEED     1   // 通常走行(20〜25)の速さを、ハンドル角度から決まる「曲がれる上限の速さ」にする
-#define USE_NEW_CURVE_SPEED     1   // 大曲がり(30〜45)の速さも、同じ方法で決める
-#define USE_NEW_STEER           1   // 通常走行(20〜25)のハンドル角度を、線の位置から計算する（ピュアパシュート）
+#define USE_NEW_TRACE_SPEED     0   // 通常走行(20〜25)の速さを、ハンドル角度から決まる「曲がれる上限の速さ」にする
+#define USE_NEW_CURVE_SPEED     0   // 大曲がり(30〜45)の速さも、同じ方法で決める
+#define USE_NEW_STEER           0   // 通常走行(20〜25)のハンドル角度を、線の位置から計算する（ピュアパシュート）
 #define USE_NEW_CRANK_BRAKE     1   // クランク手前の減速を、速さと残りの距離から計算する（USE_NEW_CRANK_TURN が 0 なら CRANK_ENTRY_MPS も入れる）
 #define USE_NEW_CRANK_TURN      1   // クランクを、コースからはみ出さない最大の半径の円弧で曲がる
 #define USE_NEW_LANE_BRAKE      1   // レーンチェンジ手前の減速を、速さと残りの距離から計算する（USE_NEW_LANE_STEER と一緒に使う）
                                     //   2026-11-24 から 1：模擬では元の方法はこの車の寸法でコースアウトし、新しい方法は出力100%のまま S字で移れた（docs/tuning_guide.md 8 章の最後）
 #define USE_NEW_LANE_STEER      1   // レーンチェンジを、同じ半径の円弧2つをつないだ最も緩い経路で行う
 #define USE_NEW_VMAX_LEARN      1   // ラインの通過で測った速さから、出力100%のときの速さ（電池の電圧で変わる）を走りながら直す（ラインの幅を合わせてから使う）
-#define USE_NEW_LINE_SHAPE      1   // センサと自分のハンドル角度から線の位置・向き・曲がり具合を推定し、サーボの遅れの分だけ先の状態でハンドルを切る（USE_NEW_STEER と一緒に使う）
-#define USE_NEW_CURVE_PREVIEW   1   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
+#define USE_NEW_LINE_SHAPE      0   // センサと自分のハンドル角度から線の位置・向き・曲がり具合を推定し、サーボの遅れの分だけ先の状態でハンドルを切る（USE_NEW_STEER と一緒に使う）
+#define USE_NEW_CURVE_PREVIEW   0   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
+                                    //   2026-11-26：TRACE_SPEED・CURVE_SPEED・STEER・LINE_SHAPE・CURVE_PREVIEW を 0、BRAKE_AT_GRIP を 0、CRANK_RULE_MIN_M を 0、LINE_OBS_DEADZONE_M を 0.002 に戻した（実車で確実に走っていた 215ded9 と同じ値）
 #define USE_NEW_CRANK_QUICK     1   // クランクを、手前で少しだけ減速し、ハンドルを大きく切って短い時間で90°曲がり、曲がり終わる前にハンドルを戻し始める（USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に使う）
 #define USE_NEW_BRAKE_RANGE     1   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
 
@@ -281,7 +282,7 @@ const int COURSE_START_ROWS[] = {
 #define CRANK_ENTRY_MPS         0.0f    // クランクに入る速さ [m/s]。0 なら円弧の半径とグリップから自動で計算する（USE_NEW_CRANK_TURN が 1 のとき）
                                         //   USE_NEW_CRANK_TURN が 0 のときは、元の曲がり方でうまく曲がれる速さを入れる（模擬では 1.4 前後）
 #define CRANK_BRAKE_POWER       (-40)   // ブレーキのときのモータ出力（マイナスは逆転）
-#define BRAKE_AT_GRIP           1       // クランク・レーンチェンジ手前のブレーキ（新しい減速）の出力
+#define BRAKE_AT_GRIP           0       // クランク・レーンチェンジ手前のブレーキ（新しい減速）の出力
                                         //   1 : モデルの減速度がちょうど GRIP_LONG_USE になる出力（CRANK_BRAKE_POWER・LANE_BRAKE_POWER より強くはしない）。
                                         //       減速がモデルどおりになり、目標の速さより下がりすぎて加速し直すことがない
                                         //   0 : いつも CRANK_BRAKE_POWER・LANE_BRAKE_POWER（前の動き。実際の減速がモデルより強いと下がりすぎる）
@@ -302,7 +303,7 @@ const int COURSE_START_ROWS[] = {
                                         //   -1 : 曲がり角の線を見てからのブレーキで間に合う一番速い速さ（crank_app_mps）。速いが、ブレーキの効きが計算より弱いと曲がり遅れる
                                         //        （CRK0056 / CRK0057：全開のまま曲がり角に着き、曲がるのが遅れて脱線した）
                                         //   正の値 : その速さ
-#define CRANK_RULE_MIN_M        0.500f  // USE_NEW_CRANK_ANY_COURSE：クロスラインの終わりから曲がり角まで、規則で一番近い距離 [m]（規則 500〜1000mm）
+#define CRANK_RULE_MIN_M        0.000f  // USE_NEW_CRANK_ANY_COURSE：クロスラインの終わりから曲がり角まで、規則で一番近い距離 [m]（規則 500〜1000mm）
                                         //   ここまでは全開で走り、ここで v_app（上の CRANK_APPROACH_MPS で決まる速さ）になるようにブレーキをかける。
                                         //   曲がり角がもっと遠いときは、ここから曲がり角までその速さで走る。0 にすると、クロスラインの直後にブレーキ（前の動き）
 #define CRANK_TURN_EARLY_M      0.010f  // USE_NEW_CRANK_QUICK：曲がり始めてよい範囲（幅 CRANK_QUICK_WINDOW_M）の真ん中から、この距離 [m] だけ早く曲がり始める
@@ -349,7 +350,7 @@ const int COURSE_START_ROWS[] = {
 //========================================
 #define LINE_OBS_BAND           12.0f   // 推定が線の変化に追いつく速さ [1/m]（1/この値 [m] 進むと追いつく）。
                                         //   大きいほどカーブに早く気づくが、きざみの揺れを拾う（模擬では 8〜15 で同じくらい。12 が最も速かった）
-#define LINE_OBS_DEADZONE_M     0.003f  // センサで見た位置との差がこれ [m] 以内なら、推定を直さない（USE_NEW_LINE_SHAPE と USE_NEW_CURVE_PREVIEW の両方が 1 のとき）。
+#define LINE_OBS_DEADZONE_M     0.002f  // センサで見た位置との差がこれ [m] 以内なら、推定を直さない（USE_NEW_LINE_SHAPE と USE_NEW_CURVE_PREVIEW の両方が 1 のとき）。
                                         //   2026-11-26 0.002 → 0.003：0.002 では推定がきざみの端から端へ跳んで、カーブ中にハンドルが ±1〜3° 揺れた（模擬で揺れの回数が 1/6）
                                         //   センサは 10mm おきなので、線の幅によって、同じ形に見える線の位置には 2〜8mm の幅がある。
                                         //   その幅の中のどこにあるかはセンサでは分からないので、幅の外に出た分だけで直す
