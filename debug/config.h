@@ -278,6 +278,10 @@ const int COURSE_START_ROWS[] = {
 #define CRANK_ENTRY_MPS         0.0f    // クランクに入る速さ [m/s]。0 なら円弧の半径とグリップから自動で計算する（USE_NEW_CRANK_TURN が 1 のとき）
                                         //   USE_NEW_CRANK_TURN が 0 のときは、元の曲がり方でうまく曲がれる速さを入れる（模擬では 1.4 前後）
 #define CRANK_BRAKE_POWER       (-40)   // ブレーキのときのモータ出力（マイナスは逆転）
+#define BRAKE_AT_GRIP           1       // クランク・レーンチェンジ手前のブレーキ（新しい減速）の出力
+                                        //   1 : モデルの減速度がちょうど GRIP_LONG_USE になる出力（CRANK_BRAKE_POWER・LANE_BRAKE_POWER より強くはしない）。
+                                        //       減速がモデルどおりになり、目標の速さより下がりすぎて加速し直すことがない
+                                        //   0 : いつも CRANK_BRAKE_POWER・LANE_BRAKE_POWER（前の動き。実際の減速がモデルより強いと下がりすぎる）
 #define SPEED_HOLD_BAND_MPS     0.05f   // 減速して目標の速さからこれ [m/s] 以内になったら、ブレーキをやめて目標の速さに保つ（クランク・レーンチェンジ手前）
 #define SPEED_HOLD_S            0.020f  // 目標の速さに保つとき、ずれを直す速さ [s]（短いほど強く直すが、出力が振れやすい）
 #define CRANK_BRAKE_MARGIN_M    0.05f   // 計算の誤差に備えて、早めにブレーキをかける距離 [m]（距離の推定の誤差 ±5% × 1m 分）
@@ -291,10 +295,13 @@ const int COURSE_START_ROWS[] = {
 //   半径が大きいほど速く曲がれるが、この幅が狭くなる。この幅が CRANK_QUICK_WINDOW_M 以上ある一番大きい半径で、
 //   幅の真ん中から曲がり始める（後輪の軸からの位置。COURSE_MARGIN_M の余裕はこの幅とは別に両側にある）
 #define CRANK_APPROACH_MPS      0.0f    // USE_NEW_CRANK_ANY_COURSE：クロスラインを過ぎてから曲がり角の線まで走る速さ [m/s]
-                                        //   0  : クロスラインの直後に、円弧を曲がる速さ（crank_entry_mps）まで落とす。曲がり角に着いた時にはもう遅いので、計画どおりの位置で曲がれる
+                                        //   0  : 円弧を曲がる速さ（crank_entry_mps）まで落とす（落とし終わる位置は下の CRANK_RULE_MIN_M）。曲がり角に着いた時にはもう遅いので、計画どおりの位置で曲がれる
                                         //   -1 : 曲がり角の線を見てからのブレーキで間に合う一番速い速さ（crank_app_mps）。速いが、ブレーキの効きが計算より弱いと曲がり遅れる
                                         //        （CRK0056 / CRK0057：全開のまま曲がり角に着き、曲がるのが遅れて脱線した）
                                         //   正の値 : その速さ
+#define CRANK_RULE_MIN_M        0.500f  // USE_NEW_CRANK_ANY_COURSE：クロスラインの終わりから曲がり角まで、規則で一番近い距離 [m]（規則 500〜1000mm）
+                                        //   ここまでは全開で走り、ここで v_app（上の CRANK_APPROACH_MPS で決まる速さ）になるようにブレーキをかける。
+                                        //   曲がり角がもっと遠いときは、ここから曲がり角までその速さで走る。0 にすると、クロスラインの直後にブレーキ（前の動き）
 #define CRANK_TURN_EARLY_M      0.010f  // USE_NEW_CRANK_QUICK：曲がり始めてよい範囲（幅 CRANK_QUICK_WINDOW_M）の真ん中から、この距離 [m] だけ早く曲がり始める
                                         //   実車のログ（FULL0053・CRK0056・CRK0057）は、どれも曲がるのが遅れて外へ出ていた。範囲の早い側の端は超えない
 #define CRANK_UNWIND_EARLY_DEG  10.0f   // USE_NEW_CRANK_QUICK：クランクで曲がっている途中、ハンドルを戻し始める（反対側へ切り返し始める）のを、計算より何度早くするか [度]
