@@ -98,7 +98,9 @@ enum {
     PT_LANE_R_SPOST    = 380,  // 380〜390 円弧を走り終えて、新しい線を探す（USE_NEW_LANE_STEER）
     PT_LANE_R_ALIGN    = 400,  // 400〜410 新しい線に合わせる
     PT_LANE_R_FINISH   = 420,  // 420〜430 終了処理
-    PT_LANE_R_RECOVER  = 440,  // 440〜450 外へふくらんだ時
+    PT_LANE_R_RECOVER  = 440,
+    PT_LANE_R_SNAP     = 460,  // 中央線の切れ目でグイッと曲がる（USE_NEW_LANE_SNAP）
+    PT_LANE_R_SNAPBACK = 470,  // 新しい線を見つけたので、線に沿うように向きを戻す（USE_NEW_LANE_SNAP）  // 440〜450 外へふくらんだ時
     PT_LANE_L_FOUND    = 500,  // 以下、左レーンチェンジ（右と同じ並び）
     PT_LANE_L_PASS     = 501,
     PT_LANE_L_SELECT   = 502,
@@ -110,6 +112,8 @@ enum {
     PT_LANE_L_ALIGN    = 700,
     PT_LANE_L_FINISH   = 720,
     PT_LANE_L_RECOVER  = 740,
+    PT_LANE_L_SNAP     = 760,
+    PT_LANE_L_SNAPBACK = 770,
     PT_STOP            = 800,  // 自動停止（ハンドルで線を追う）
     PT_STOP_HOLD       = 801,  // 完全停止（自動停止の後、またはコースアウト）
     PT_END             = 1001  // 走行とログ記録の終了
@@ -190,6 +194,9 @@ void run_lane_recover(int stage, bool right);
 void run_lane_scurve(int stage, bool right);
 void run_lane_spost(int stage, bool right);
 bool lane_start_scurve(int stage, bool right);
+bool lane_start_snap(bool right);
+void run_lane_snap(bool right);
+void run_lane_snapback(bool right);
 void lane_speed_control(void);
 int lane_pt(bool right, int pt_right, int pt_left);
 float lane_cross_plan(float r, float phi, float d, float v, float ang);
@@ -307,6 +314,7 @@ volatile float plan_len_m;             // 計算した経路：円弧1つの長�
 volatile float lane_end_m;            // レーンチェンジ：S字を終える所 [m]（LANE_CROSS_ADJUST_M でずらす）
 volatile float lane_sw0_m;            // レーンチェンジ：計算した切り返しの所 [m]
 volatile float lane_cross_m;          // レーンチェンジ：センサが新しい線の真上を通るはずの所 [m]（0 以下は見ない）
+volatile float lane_yaw;              // USE_NEW_LANE_SNAP：中央線が切れてから車の向きが変わった角度 [rad]（車線を変える側がプラス）
 volatile float lane_cross_lag_m;      // レーンチェンジ：S字の始めにサーボが効くまでに進む距離 [m]
 volatile float plan_switch_m;          // 計算した経路：レーンチェンジで逆向きにハンドルを切る所 [m]
 volatile float plan_speed_mps;         // 計算した経路：走る速さ [m/s]
@@ -541,6 +549,10 @@ void run_pattern(void) {
     case PT_LANE_L_FOUND:    run_lane_found(false);     return;
     case PT_LANE_L_PASS:     run_lane_pass(false);      return;
     case PT_LANE_L_SELECT:   run_lane_select(false);    return;
+    case PT_LANE_R_SNAP:     run_lane_snap(true);       return;
+    case PT_LANE_L_SNAP:     run_lane_snap(false);      return;
+    case PT_LANE_R_SNAPBACK: run_lane_snapback(true);   return;
+    case PT_LANE_L_SNAPBACK: run_lane_snapback(false);  return;
     case PT_STOP:            run_stop();                return;
     case PT_STOP_HOLD:       run_stop_hold();           return;
     case PT_END:             run_end();                 return;

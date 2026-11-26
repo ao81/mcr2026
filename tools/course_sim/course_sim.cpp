@@ -373,7 +373,7 @@ int main(int argc, char** argv) {
         x += v * hx * dt; y += v * hy * dt;
         psi -= v * k * dt;                               // 右に曲がると psi は減る
         if (v > v_peak) v_peak = v;
-        if (event_ptn < 0 && ((pattern >= 110 && pattern <= 161) || (pattern >= 320 && pattern <= 390) || (pattern >= 620 && pattern <= 690))) {
+        if (event_ptn < 0 && ((pattern >= 110 && pattern <= 161) || (pattern >= 320 && pattern <= 390) || (pattern >= 620 && pattern <= 690) || pattern == 460 || pattern == 760)) {
             event_ptn = pattern; v_event = v;
         }
         if (dump > 0 && t % dump == 0) {

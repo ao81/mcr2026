@@ -72,8 +72,8 @@ static bool dbg_is_event(int p) {
 #if DBG_TARGET == 1
     return p >= PT_CROSS_FOUND && p <= PT_CRANK_R_OUTSIDE;
 #elif DBG_TARGET == 2
-    return (p >= PT_LANE_R_FOUND && p <= PT_LANE_R_SELECT) || (p >= PT_LANE_R_APPROACH && p <= 450)
-        || (p >= PT_LANE_L_FOUND && p <= PT_LANE_L_SELECT) || (p >= PT_LANE_L_APPROACH && p <= 750);
+    return (p >= PT_LANE_R_FOUND && p <= PT_LANE_R_SELECT) || (p >= PT_LANE_R_APPROACH && p <= 470)
+        || (p >= PT_LANE_L_FOUND && p <= PT_LANE_L_SELECT) || (p >= PT_LANE_L_APPROACH && p <= 770);
 #else
 #if DBG_TARGET == 4
     // 緩いカーブは通常トレースのまま曲がる。舵の一瞬の揺れを除く。
@@ -261,8 +261,8 @@ static int dbg_header_line(int n, char* buf, int size) {
     case 3: snprintf(buf, size, "#switch,TRACTION,%d,TRACE_SPEED,%d,CURVE_SPEED,%d,STEER,%d,CRANK_BRAKE,%d,CRANK_TURN,%d,CRANK_QUICK,%d,BRAKE_RANGE,%d",
                      USE_NEW_TRACTION, USE_NEW_TRACE_SPEED, USE_NEW_CURVE_SPEED, USE_NEW_STEER,
                      USE_NEW_CRANK_BRAKE, USE_NEW_CRANK_TURN, USE_NEW_CRANK_QUICK, USE_NEW_BRAKE_RANGE); return 1;
-    case 4: snprintf(buf, size, "#switch,LANE_BRAKE,%d,LANE_STEER,%d,VMAX_LEARN,%d,LINE_SHAPE,%d,CURVE_PREVIEW,%d",
-                     USE_NEW_LANE_BRAKE, USE_NEW_LANE_STEER, USE_NEW_VMAX_LEARN, USE_NEW_LINE_SHAPE, USE_NEW_CURVE_PREVIEW); return 1;
+    case 4: snprintf(buf, size, "#switch,LANE_BRAKE,%d,LANE_STEER,%d,VMAX_LEARN,%d,LINE_SHAPE,%d,CURVE_PREVIEW,%d,LANE_SNAP,%d",
+                     USE_NEW_LANE_BRAKE, USE_NEW_LANE_STEER, USE_NEW_VMAX_LEARN, USE_NEW_LINE_SHAPE, USE_NEW_CURVE_PREVIEW, USE_NEW_LANE_SNAP); return 1;
     }
     // 小数の値は "#param,名前,値" で1行ずつ
     static const char* const names[] = {

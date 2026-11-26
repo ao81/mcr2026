@@ -404,6 +404,9 @@ void plan_setup(void) {
 #endif
     crank_entry_mps = (CRANK_ENTRY_MPS > 0.0f) ? CRANK_ENTRY_MPS : crank_turn_speed_auto();
     lane_entry_mps  = (LANE_ENTRY_MPS  > 0.0f) ? LANE_ENTRY_MPS  : lane_turn_speed_auto();
+#if USE_NEW_LANE_SNAP
+    if (LANE_SNAP_MPS > 0.0f) lane_entry_mps = LANE_SNAP_MPS;   // グイッと曲がる前に落とす速さ
+#endif
     pursuit_ld = pursuit_lookahead_m();
     obs_k_lim = 2.0f / radius_of_angle(SERVO_MAX_ANGLE);
 
