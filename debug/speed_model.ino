@@ -454,6 +454,15 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
 void crank_speed_control_new(void) {
 #if USE_NEW_CRANK_ANY_COURSE
     // 曲がり角までの距離を使わない：曲がり角の線を見てからでも間に合う速さ（計算できなければクランクに入る速さ）まで、すぐに落とす
+    if (CRANK_MIN_TO_M > 0.0f && CRANK_APPROACH_MPS == 0.0f) {
+        // このコースで一番近いクランク（CRANK_MIN_TO_M 先に曲がり角がある）でちょうど間に合うように、そこまでは全開で走り、そこから減速する。
+        // 遠いクランクでは、曲がり角より手前で曲がる速さになり、その後は曲がる速さのまま走る
+        // 曲がり角の線を見つけた後の直進（crank_extra_m）は足さない。実車は線のすぐ後（約 3cm）で曲がり始めるので、線の所で曲がる速さになっている必要がある
+        float remain = CRANK_MIN_TO_M - dist_m;
+        int pm = brake_power_for(remain, crank_entry_mps, CRANK_BRAKE_POWER, CRANK_BRAKE_MARGIN_M);
+        sp(pm, pm);
+        return;
+    }
     float v_app = crank_entry_mps;
     if (CRANK_APPROACH_MPS > 0.0f) v_app = CRANK_APPROACH_MPS;
     else if (CRANK_APPROACH_MPS < 0.0f && crank_app_mps > 0.0f) v_app = crank_app_mps;

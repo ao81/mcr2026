@@ -210,6 +210,14 @@ void run_crank_outside(bool right) {
     }
 }
 
+// 円弧を曲がる速さ。グリップから計算した速さ v_grip が CRANK_ENTRY_MPS より速ければ CRANK_ENTRY_MPS にする
+//   CRK0095・0099・0100（2026-11-25）：曲がり角の線で測った速さが 0.58・0.70 m/s のときは曲がれ、0.92〜0.98 m/s（600mm のクランク）では外へ出た。
+//   計算の速さは 0.97 m/s（GRIP_LAT_MPS2 7.0 から）で、実車のタイヤはそこまでもたない
+static float crank_turn_speed(float v_grip) {
+    if (CRANK_ENTRY_MPS > 0.0f && v_grip > CRANK_ENTRY_MPS) return CRANK_ENTRY_MPS;
+    return v_grip;
+}
+
 //**********************************************************************
 // クランクを見つけた時に、計算した円弧で曲がれるか調べて、曲がれるなら pattern 112 / 152 へ（USE_NEW_CRANK_TURN）
 //   戻り値 true: 円弧で曲がる  false: 曲がれないので元の方法で曲がる
@@ -220,7 +228,7 @@ bool crank_start_arc(bool right) {
     float v = speed_mps;
 #if USE_NEW_CRANK_QUICK
     // 曲がり始めるまでの直進の間に、曲がる速さにする（速ければ減速、遅ければ加速）。サーボが効くまでに進む距離は、その速さで計算する
-    if (crank_q_r > 0.0f) v = corner_speed(1.0f / crank_q_r);
+    if (crank_q_r > 0.0f) v = crank_turn_speed(corner_speed(1.0f / crank_q_r));
 #endif
     if (!crank_plan(v, &r, &wait)) return false;
     v = speed_mps;
@@ -234,7 +242,7 @@ bool crank_start_arc(bool right) {
 
     plan_wait_m = wait;
     plan_len_m = r * PI_F * 0.5f;                  // 90°分の円弧の長さ
-    plan_speed_mps = v_turn;
+    plan_speed_mps = crank_turn_speed(v_turn);
     plan_angle = angle_for_radius(r);
     reset_distance();                              // ここから距離を数える
     crank_yaw = 0.0f;
@@ -270,11 +278,11 @@ void run_crank_arc(bool right) {
             float vm = wl / ((cnt1 + LINE_PASS_OFFSET_MS) * 0.001f);
             // 減速の後は推定が大きくずれていることがあるので、クロスラインのとき（0.6〜1.67倍）より広く受け付ける。
             // それより大きく違うときは測り間違いとみて使わない
-            if (vm > speed_mps * 0.4f && vm < speed_mps * 2.5f) {
+            if (vm > speed_mps * 0.1f && vm < speed_mps * 2.5f) {   // 下は 0.4 → 0.1（CRANK_MIN_TO_M で遅くブレーキをかけ、本当の減速が計算より強いと、ほとんど止まりかけて線を通る。模擬 grip_long 10）
                 speed_mps = vm;
                 dist_m = wl;
                 float r, wait;
-                float vq = corner_speed(1.0f / crank_q_r);
+                float vq = crank_turn_speed(corner_speed(1.0f / crank_q_r));
                 if (crank_plan(vq, &r, &wait)) plan_wait_m = wait;
             }
         }
