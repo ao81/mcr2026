@@ -6,7 +6,9 @@
 //                （クランクごとに距離が違うコース。config.h の COURSE_LIST を試すときに使う。turn は +1 右、-1 左）
 //       s_r / s_l : 直線 → 右（左）へ s_deg 度曲がる半径 s_rad の円弧 → 反対へ s_deg 度の円弧 → 直線（S字）
 //     名前=値: 車とコースの「本当の値」を変える（プログラム側の config.h の値はそのまま）
-//       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to half_to lane_sec lane_pre（合流部分の始まりから切れ目まで） lane_new curve_r s_rad s_deg
+//       v_max tau grip_lat grip_long servo_dps servo_dead line_w cross_to（クロスラインの終わりから曲がった後の中心線まで） half_to
+//       lane_pre（合流部分の始まりから中心線の切れ目まで） lane_sec（切れ目から合流部分の終わりまで） lane_new curve_r s_rad（中心線の半径） s_deg
+//       shoulder（1: 路肩の白 30mm あり） gray_white（1: 中心線の両側の灰色をセンサが白と見る）
 //       cross_to2 line_w2 gap turn1 turn2（crank2）  fric（摩擦で走らない出力 [%]）
 //       sensor_to_axle sensor_half_w（センサの基板の幅の半分。レーンチェンジでは腕と先も判定） half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
@@ -46,6 +48,15 @@ void loop();
 void AGTCallback(timer_callback_args_t* p_args);
 
 // ---------------- コースの形 ----------------
+// 公式のコースの寸法（ジャパンマイコンカーラリー Basic Class 競技規則 第3条、キットの解説、JMCR2027 地区大会のコース図）
+//   ・コースの幅 300mm。横から見た並び：路肩の白 30 ｜ 黒 ｜ 灰 10・中心線の白 20・灰 10 ｜ 黒 ｜ 路肩の白 30
+//   ・クロスライン：白1本、幅 20〜40mm、コースの幅いっぱい。クランクの曲がり角は直角
+//     模擬の cross_to は「クロスラインの終わりから、曲がった後の車線の中心線（の真ん中）まで」（ao 2026-11-26：
+//     幅 20/30/40mm → 800/700/600mm。2027 のコース図では、その先コースの端まで 140）
+//   ・ハーフライン：白1本、幅 20〜40mm、曲がる側の半分だけ。合流部分の 300〜1000mm 手前（コース図では 400）
+//   ・レーンチェンジの合流部分（チェンジ区間）：長さ 600mm、幅 600mm（2つの車線が並んだ形）。中の中心線は 200 と 400 の2本で、
+//     古い車線の線が切れた所から新しい車線の線が始まる。外側の路肩には白 30mm。角の2か所にポール
+//   ・カーブ・S字：内側の端の半径 450mm 以上（中心線の半径 600mm 以上）
 struct Rect { double x0, y0, x1, y1; };
 struct Ring { double cx, cy, r0, r1, a0, a1; };   // 中心、内径、外径、角度の範囲[rad]
 struct Shapes {
@@ -65,7 +76,8 @@ struct Shapes {
     }
 };
 struct Course {
-    Shapes white;     // 白線
+    Shapes white;     // 白（中心線・クロスライン・ハーフライン・路肩）
+    Shapes gray;      // 中心線の両側の灰色（gray_white=1 のときだけセンサに白く見える）
     Shapes surface;   // コースの面
     int kind = 0;     // 0:crank 1:lane 2:curve 3:S字
     int dir = 1;      // +1 右, -1 左
@@ -77,15 +89,79 @@ struct Course {
 static std::map<std::string, double> P = {
     {"v_max", V_MAX_MPS}, {"tau", MOTOR_TAU_S}, {"grip_lat", GRIP_LAT_MPS2}, {"grip_long", GRIP_LONG_MPS2},
     {"servo_dps", SERVO_SPEED_DPS}, {"servo_dead", SERVO_DEAD_S}, {"line_w", 0.032}, {"cross_to", CROSS_TO_CRANK_M}, {"half_to", HALF_TO_LANE_M},
-    {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"lane_pre", LANE_PRE_M}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
+    {"lane_sec", 0.4}, {"lane_new", 0.0}, {"lane_pre", 0.2}, {"curve_r", 0.60}, {"s_rad", 0.60}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0}, {"surf_w", 0.15},
     {"fric", MOTOR_FRICTION_PERCENT}, {"steer_gain", 1.0}, {"sensor_half_w", SENSOR_HALF_WIDTH_M}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
+    {"shoulder", 1}, {"gray_white", 0},
 };
+
+static const double CW = 0.150;    // コースの幅の半分
+static const double CLW = 0.010;   // 中心線（白 20mm）の幅の半分
+static const double CGW = 0.020;   // 中心線と両側の灰色（10mm ずつ）を合わせた幅の半分
+static const double CSH = 0.030;   // 路肩の白の幅
+
+static Rect box(double xa, double ya, double xb, double yb) {
+    return Rect{std::min(xa, xb), std::min(ya, yb), std::max(xa, xb), std::max(ya, yb)};
+}
+
+// 直角に曲がるだけの道（x・y の向きの直線をつないだもの）。pts は中心線の折れ点、ext0・ext1 は始まりと終わりの先に延ばす長さ
+// 曲がり角の外側は、路肩の白がコースの端まで回り込む（突き当たりの壁の側も白）。内側は、曲がった先の車線の路肩につながる
+static void add_path(Course& c, const std::vector<std::array<double, 2>>& pts, double ext0, double ext1) {
+    const int n = (int)pts.size() - 1;
+    for (int i = 0; i < n; i++) {
+        const double ax = pts[i][0], ay = pts[i][1], bx = pts[i + 1][0], by = pts[i + 1][1];
+        const double L = hypot(bx - ax, by - ay), ux = (bx - ax) / L, uy = (by - ay) / L;
+        const double nx = -uy, ny = ux;   // 左
+        auto R = [&](double s0, double s1, double l0, double l1) {
+            return box(ax + ux * s0 + nx * l0, ay + uy * s0 + ny * l0, ax + ux * s1 + nx * l1, ay + uy * s1 + ny * l1);
+        };
+        const bool first = (i == 0), last = (i == n - 1);
+        const double s0 = first ? -ext0 : 0, s1 = last ? L + ext1 : L;
+        c.surface.rects.push_back(R(first ? s0 : -CW, last ? s1 : L + CW, -CW, CW));
+        c.gray.rects.push_back(R(first ? s0 : -CGW, last ? s1 : L + CGW, -CGW, CGW));
+        c.white.rects.push_back(R(first ? s0 : -CLW, last ? s1 : L + CLW, -CLW, CLW));
+        if (!P["shoulder"]) continue;
+        for (int side = -1; side <= 1; side += 2) {   // -1 右、+1 左
+            const double sx = nx * side, sy = ny * side;
+            double t0 = s0, t1 = s1;
+            if (!first) {   // 始まりの曲がり角：前の道の向きの側（突き当たりの側）は端から、反対側は内側の角から
+                double px = pts[i][0] - pts[i - 1][0], py = pts[i][1] - pts[i - 1][1];
+                t0 = (sx * px + sy * py > 0) ? -CW : CW - CSH;
+            }
+            if (!last) {    // 終わりの曲がり角：曲がる側は曲がった先の車線の手前で終わる。反対側は端まで
+                double qx = pts[i + 2][0] - bx, qy = pts[i + 2][1] - by;
+                t1 = (sx * qx + sy * qy > 0) ? L - CW : L + CW;
+            }
+            c.white.rects.push_back(side > 0 ? R(t0, t1, CW - CSH, CW) : R(t0, t1, -CW, -CW + CSH));
+        }
+    }
+}
+
+// 円弧の道（中心 (cx, cy)、中心線の半径 r、角度 a0〜a1）。sw はコースアウトを判定する面の幅の半分
+static void add_arc(Course& c, double cx, double cy, double r, double a0, double a1, double sw) {
+    c.surface.rings.push_back({cx, cy, r - sw, r + sw, a0, a1});
+    c.gray.rings.push_back({cx, cy, r - CGW, r + CGW, a0, a1});
+    c.white.rings.push_back({cx, cy, r - CLW, r + CLW, a0, a1});
+    if (P["shoulder"]) {
+        c.white.rings.push_back({cx, cy, r - CW, r - CW + CSH, a0, a1});
+        c.white.rings.push_back({cx, cy, r + CW - CSH, r + CW, a0, a1});
+    }
+}
+// y の向きの直線の道（x = x0、y = y0〜y1）。sw はコースアウトを判定する面の幅の半分
+static void add_straight_y(Course& c, double x0, double y0, double y1, double sw) {
+    c.surface.rects.push_back({x0 - sw, y0, x0 + sw, y1});
+    c.gray.rects.push_back({x0 - CGW, y0, x0 + CGW, y1});
+    c.white.rects.push_back({x0 - CLW, y0, x0 + CLW, y1});
+    if (P["shoulder"]) {
+        c.white.rects.push_back({x0 - CW, y0, x0 - CW + CSH, y1});
+        c.white.rects.push_back({x0 + CW - CSH, y0, x0 + CW, y1});
+    }
+}
 
 static Course make_course(const std::string& name) {
     Course c;
-    const double W = 0.15, LW = 0.01;            // コース幅の半分、中心線の幅の半分
+    const double W = CW;
     const double SW = P["surf_w"];               // カーブ・S字のコースアウトを判定する面の幅の半分（初期値 0.15。ハンドルの揺れだけを見るときに広げる）
     double y1 = P["approach"];                    // スタートから特別な線まで
     double lw = P["line_w"];
@@ -94,23 +170,15 @@ static Course make_course(const std::string& name) {
         // 1つ目：+y へ進み、turn1 の向きへ曲がって ±x へ。2つ目：turn2 の向きへ曲がって ±y へ
         c.kind = 4;
         c.dir = 1;
-        auto box = [](double xa, double ya, double xb, double yb) {
-            return Rect{std::min(xa, xb), std::min(ya, yb), std::max(xa, xb), std::max(ya, yb)};
-        };
         const double sx = P["turn1"] >= 0 ? 1 : -1;                              // 1つ目の後に進む x の向き
         const double sy = ((P["turn1"] >= 0) == (P["turn2"] >= 0)) ? -1 : 1;     // 2つ目の後に進む y の向き
-        double y0 = y1 + lw + P["cross_to"] + LW;                               // 1つ目の曲がり角の線の中心
+        double y0 = y1 + lw + P["cross_to"];                                     // 1つ目の曲がり角（曲がった後の中心線）
         double xc = sx * P["gap"];                                               // 2つ目のクロスラインの始まり
         double lw2 = P["line_w2"];
-        double x0 = sx * (P["gap"] + lw2 + P["cross_to2"] + LW);                // 2つ目の曲がり角の線の中心
+        double x0 = sx * (P["gap"] + lw2 + P["cross_to2"]);                      // 2つ目の曲がり角
+        add_path(c, {{{0, -1}}, {{0, y0}}, {{x0, y0}}, {{x0, y0 + sy * 4}}}, 0, 0);
         c.white.rects.push_back({-W, y1, W, y1 + lw});                           // 1つ目のクロスライン
-        c.white.rects.push_back({-LW, -1, LW, y0 + LW});                         // 中心線（+y）
-        c.white.rects.push_back(box(-sx * LW, y0 - LW, x0 + sx * LW, y0 + LW));  // 中心線（±x）
         c.white.rects.push_back(box(xc, y0 - W, xc + sx * lw2, y0 + W));         // 2つ目のクロスライン
-        c.white.rects.push_back(box(x0 - LW, y0 - sy * LW, x0 + LW, y0 + sy * 4));  // 中心線（±y）
-        c.surface.rects.push_back({-W, -1, W, y0 + W});
-        c.surface.rects.push_back(box(-sx * W, y0 - W, x0 + sx * W, y0 + W));
-        c.surface.rects.push_back(box(x0 - W, y0 - sy * W, x0 + W, y0 + sy * 4));
         c.finish = y0 + sy * 1.0;
         c.white_x = x0;
         c.fin_sy = sy;
@@ -118,28 +186,34 @@ static Course make_course(const std::string& name) {
     }
     if (name.rfind("crank", 0) == 0) {
         c.kind = 0;
-        double y0 = y1 + lw + P["cross_to"] + LW;   // 曲がり角の線の中心
+        double y0 = y1 + lw + P["cross_to"];   // 曲がった後の車線の中心線
+        add_path(c, {{{0, -1}}, {{0, y0}}, {{c.dir * 4.0, y0}}}, 0, 0);
         c.white.rects.push_back({-W, y1, W, y1 + lw});                           // クロスライン
-        c.white.rects.push_back({-LW, -1, LW, y0 + LW});                         // 中心線
-        if (c.dir > 0) c.white.rects.push_back({-LW, y0 - LW, 4, y0 + LW});
-        else           c.white.rects.push_back({-4, y0 - LW, LW, y0 + LW});
-        c.surface.rects.push_back({-W, -1, W, y0 + W});
-        if (c.dir > 0) c.surface.rects.push_back({-W, y0 - W, 4, y0 + W});
-        else           c.surface.rects.push_back({-4, y0 - W, W, y0 + W});
         c.finish = 1.0;
     } else if (name.rfind("lane", 0) == 0) {
+        // 合流部分（長さ lane_pre + lane_sec、幅 600mm）。古い車線の中心線は合流部分に lane_pre 入った所で切れ、
+        // 新しい車線（中心が 300mm 横）の中心線はそこから lane_new 先で始まる（規則では lane_pre + lane_sec = 0.6、2本は 200 と 400）
         c.kind = 1;
-        double d = 0.30 * c.dir;
-        double ye = y1 + lw + P["half_to"];         // 中央線が切れる所
-        double ls = P["lane_sec"];
-        if (c.dir > 0) c.white.rects.push_back({-LW, y1, W, y1 + lw});           // ハーフライン
-        else           c.white.rects.push_back({-W, y1, LW, y1 + lw});
-        c.white.rects.push_back({-LW, -1, LW, ye});
-        c.white.rects.push_back({d - LW, ye + P["lane_new"], d + LW, ye + 4});    // 新しい車線の線
-        c.surface.rects.push_back({-W, -1, W, ye});
-        c.surface.rects.push_back({std::min(-W, d - W), ye - P["lane_pre"], std::max(W, d + W), ye + ls});   // 合流部分（中央線は真ん中あたりで切れる）
-        c.surface.rects.push_back({d - W, ye + ls, d + W, ye + 4});
-        c.finish = ye + 2.0;
+        const double s = c.dir, d = 0.30 * s;
+        double yb = y1 + lw + P["half_to"];         // 中央線が切れる所
+        double ys = yb - P["lane_pre"];             // 合流部分の始まり
+        double ye = yb + P["lane_sec"];             // 合流部分の終わり
+        double yn = yb + P["lane_new"];             // 新しい車線の線の始まり
+        c.white.rects.push_back(box(-s * CLW, y1, s * W, y1 + lw));               // ハーフライン（曲がる側の半分）
+        c.surface.rects.push_back({-W, -1, W, ys});                               // 古い車線
+        c.surface.rects.push_back(box(-s * W, ys, d + s * W, ye));                // 合流部分
+        c.surface.rects.push_back({d - W, ye, d + W, ye + 4});                    // 新しい車線
+        c.gray.rects.push_back({-CGW, -1, CGW, yb});
+        c.gray.rects.push_back({d - CGW, yn, d + CGW, ye + 4});
+        c.white.rects.push_back({-CLW, -1, CLW, yb});                             // 古い車線の中心線
+        c.white.rects.push_back({d - CLW, yn, d + CLW, ye + 4});                  // 新しい車線の中心線
+        if (P["shoulder"]) {
+            c.white.rects.push_back(box(-s * W, -1, -s * (W - CSH), ye));         // 曲がらない側の路肩（合流部分の外側まで）
+            c.white.rects.push_back(box(s * (W - CSH), -1, s * W, ys));           // 古い車線の曲がる側の路肩（合流部分の手前まで）
+            c.white.rects.push_back(box(d + s * (W - CSH), ys, d + s * W, ye + 4));   // 合流部分の外側と新しい車線の外側の路肩
+            c.white.rects.push_back(box(d - s * W, ye, d - s * (W - CSH), ye + 4));   // 新しい車線の内側の路肩
+        }
+        c.finish = yb + 2.0;
     } else if (name.rfind("s_", 0) == 0) {
         // 右の S字: 中心 (R, y1) の円弧で右へ θ 曲がり、中心 (R − 2R cosθ, y1 + 2R sinθ) の円弧で左へ θ 曲がる。
         // 左の S字はこれを左右に反転する（x → −x、角度 a → π − a）
@@ -153,25 +227,18 @@ static Course make_course(const std::string& name) {
             c1x = -c1x; c2x = -c2x; ex = -ex;
             a1 = 0; b1 = th; a2 = M_PI; b2 = M_PI + th;
         }
-        c.white.rects.push_back({-LW, -1, LW, y1});
-        c.white.rings.push_back({c1x, c1y, rs - LW, rs + LW, a1, b1});
-        c.white.rings.push_back({c2x, c2y, rs - LW, rs + LW, a2, b2});
-        c.white.rects.push_back({ex - LW, ey, ex + LW, ey + 4});
-        c.surface.rects.push_back({-SW, -1, SW, y1});
-        c.surface.rings.push_back({c1x, c1y, rs - SW, rs + SW, a1, b1});
-        c.surface.rings.push_back({c2x, c2y, rs - SW, rs + SW, a2, b2});
-        c.surface.rects.push_back({ex - SW, ey, ex + SW, ey + 4});
+        add_straight_y(c, 0, -1, y1, SW);
+        add_arc(c, c1x, c1y, rs, a1, b1, SW);
+        add_arc(c, c2x, c2y, rs, a2, b2, SW);
+        add_straight_y(c, ex, ey, ey + 4, SW);
         c.finish = ey + 0.5;
     } else {
         c.kind = 2;
-        double rc = P["curve_r"];
+        double rc = P["curve_r"];                     // 中心線の半径（規則：内側の端の半径 450mm 以上 → 0.60 以上）
         double cx = rc * c.dir;                       // 円の中心 (cx, y1)
-        c.white.rects.push_back({-LW, -1, LW, y1});
-        c.white.rings.push_back({cx, y1, rc - LW, rc + LW, 0, M_PI});
-        c.white.rects.push_back({2 * cx - LW, -1, 2 * cx + LW, y1});
-        c.surface.rects.push_back({-SW, -1, SW, y1});
-        c.surface.rings.push_back({cx, y1, rc - SW, rc + SW, 0, M_PI});
-        c.surface.rects.push_back({2 * cx - SW, -1, 2 * cx + SW, y1});
+        add_straight_y(c, 0, -1, y1, SW);
+        add_arc(c, cx, y1, rc, 0, M_PI, SW);
+        add_straight_y(c, 2 * cx, -1, y1, SW);
         c.finish = 0.3;
     }
     return c;
@@ -217,6 +284,7 @@ int main(int argc, char** argv) {
     const double wb = WHEELBASE_M, dt = 0.001;
     const double vmax = P["v_max"], tau = P["tau"], gy = P["grip_lat"], gx = P["grip_long"];
     const double sf = P["sensor_to_axle"], hw = P["half_w"], front = P["front"], spot = P["spot"];
+    const bool gray_white = P["gray_white"] != 0;
     int dip = (int)P["dip"];
     mock_port[3].PIDR_b.PIDR6 = !(dip & 2);
     mock_port[3].PIDR_b.PIDR7 = !(dip & 1);
@@ -229,6 +297,8 @@ int main(int argc, char** argv) {
     if (dump > 0) {
         printf("#COURSE {\"name\":\"%s\",", name.c_str());
         dump_shapes("white", c.white);
+        printf(",");
+        dump_shapes("gray", c.gray);
         printf(",");
         dump_shapes("surface", c.surface);
         printf("}\n");
@@ -253,7 +323,7 @@ int main(int argc, char** argv) {
         for (int b = 0; b < 8; b++) {
             double lat = SENSOR_X_MM[b] * 0.001;
             double px = x + sf * hx + lat * rx, py = y + sf * hy + lat * ry;
-            if (c.white.inside(px, py, spot)) s |= (uint8_t)(0x80 >> b);
+            if (c.white.inside(px, py, spot) || (gray_white && c.gray.inside(px, py, spot))) s |= (uint8_t)(0x80 >> b);
         }
         bool bar = (t < 400);
         if (bar) s |= 0x01;

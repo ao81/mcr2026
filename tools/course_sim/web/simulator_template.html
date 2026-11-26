@@ -9,7 +9,7 @@
 <style>
   :root {
     --bg: #f2f3f5; --panel: #ffffff; --text: #1d232b; --sub: #5d6773; --line: #d9dde3; --accent: #2f6fd6; --accent-bg: #e6eefb;
-    --field: #7d8c7a; --surface: #23272c; --white: #f2f2f2; --cursor: #d43d3d; --warn: #c0352b; --ok: #1f8a4c; --changed: #fff1b8;
+    --field: #7d8c7a; --surface: #23272c; --white: #f2f2f2; --gray: #8b9097; --cursor: #d43d3d; --warn: #c0352b; --ok: #1f8a4c; --changed: #fff1b8;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #14171b; --panel: #1e2328; --text: #e7eaee; --sub: #9aa4af; --line: #343b43; --accent: #6ea2f5; --accent-bg: #23344f;
@@ -154,7 +154,7 @@
     <div class="pane" id="pane-env">
       <h3>コース</h3>
       <div id="courseOpts"></div>
-      <label class="chk" id="syncRow"><input type="checkbox" id="syncDist">上の距離をプログラムの CROSS_TO_CRANK_M / HALF_TO_LANE_M にも入れる（大会でコースを測って config.h に入れた場合）。外すと、コースだけが違う場合を試せます</label>
+      <label class="chk" id="syncRow"><input type="checkbox" id="syncDist">上の距離をプログラムの CROSS_TO_CRANK_M / HALF_TO_LANE_M / LANE_PRE_M / LANE_SECTION_M にも入れる（大会でコースを測って config.h に入れた場合）。外すと、コースだけが違う場合を試せます</label>
       <h3>車の本当の値</h3>
       <div class="note">空欄は「config.h の値どおり」。プログラムの値はそのままで、本当の車だけが違う場合（グリップが 10% 低い、サーボが遅いなど）を試せます。すべての走りに同じ値を使います。</div>
       <div id="carOpts"></div>
@@ -264,15 +264,17 @@ const COURSES = [["crank_l", "左クランク"], ["crank_r", "右クランク"],
 // course_sim の「本当の値」。cfg は初期値になる config.h の名前（空欄ならその値）。prog はプログラム側の値（すべての走りに入れる）
 const COURSE_OPTS = [
   { k: "approach", label: "スタートから特別な線（カーブは入口）まで [m]", def: 1.5 },
-  { k: "cross_to", label: "クロスラインの終わりから曲がり角まで [m]", cfg: "CROSS_TO_CRANK_M", only: "crank" },
+  { k: "cross_to", label: "クロスラインの終わりから、曲がった後の車線の中心線まで [m]（規則 0.5〜1.0）", cfg: "CROSS_TO_CRANK_M", only: "crank" },
   { k: "half_to", label: "ハーフラインの終わりから中央線の切れ目まで [m]", cfg: "HALF_TO_LANE_M", only: "lane" },
-  { k: "lane_pre", label: "合流部分の始まりから切れ目まで [m]", cfg: "LANE_PRE_M", only: "lane" },
-  { k: "lane_sec", label: "切れ目から新しい車線だけになるまで [m]", cfg: "LANE_SECTION_M", only: "lane" },
+  { k: "lane_pre", label: "合流部分の始まりから中心線の切れ目まで [m]（規則：合流部分は全部で 0.6、中の線は 0.2 と 0.4）", def: 0.2, only: "lane" },
+  { k: "lane_sec", label: "切れ目から合流部分の終わりまで [m]", def: 0.4, only: "lane" },
   { k: "lane_new", label: "切れ目から新しい車線の線が始まるまで [m]", def: 0, only: "lane" },
-  { k: "curve_r", label: "カーブの半径 [m]（180° のカーブ）", def: 0.45, only: "curve" },
-  { k: "s_rad", label: "S字の円弧の半径 [m]", def: 0.8, only: "s" },
+  { k: "curve_r", label: "カーブの中心線の半径 [m]（180° のカーブ。規則：内側の端の半径 0.45 以上 → 中心線 0.60 以上）", def: 0.60, only: "curve" },
+  { k: "s_rad", label: "S字の円弧の中心線の半径 [m]（規則は 0.60 以上）", def: 0.60, only: "s" },
   { k: "s_deg", label: "S字の円弧1つで曲がる角度 [度]", def: 90, only: "s" },
-  { k: "line_w", label: "クロス・ハーフラインの白の幅 [m]", def: 0.032, only: "crank lane" },
+  { k: "line_w", label: "クロス・ハーフラインの白の幅 [m]（規則 0.020〜0.040）", def: 0.032, only: "crank lane" },
+  { k: "shoulder", label: "路肩の白 30mm（1 あり、0 なし）", def: 1 },
+  { k: "gray_white", label: "中心線の両側の灰色 10mm をセンサが白と見る（1 白、0 黒）", def: 0 },
   { k: "auto_stop", label: "スタートから自動停止まで [ms]", code: "AUTO_STOP_MS", cfg: "AUTO_STOP_MS", prog: true },
   { k: "ms", label: "模擬する時間の上限 [ms]", def: 6000, ph: "自動" },
 ];
@@ -467,6 +469,8 @@ function cfgValues(run) {
   if (S.sync) {
     if (S.copt.cross_to !== undefined) v[BY_NAME.CROSS_TO_CRANK_M.i] = S.copt.cross_to;
     if (S.copt.half_to !== undefined) v[BY_NAME.HALF_TO_LANE_M.i] = S.copt.half_to;
+    if (S.copt.lane_pre !== undefined) v[BY_NAME.LANE_PRE_M.i] = S.copt.lane_pre;
+    if (S.copt.lane_sec !== undefined) v[BY_NAME.LANE_SECTION_M.i] = S.copt.lane_sec;
   }
   return v;
 }
@@ -686,6 +690,7 @@ function draw() {
   ctx.setTransform(k, 0, 0, -k, W / 2 - cam.x * k, H / 2 + cam.y * k);
   if (D.course) {
     shapePath(ctx, D.course.surface); ctx.fillStyle = css("--surface"); ctx.fill();
+    if (D.course.gray) { shapePath(ctx, D.course.gray); ctx.fillStyle = css("--gray"); ctx.fill(); }
     shapePath(ctx, D.course.white); ctx.fillStyle = css("--white"); ctx.fill();
   }
   if ($("trail").checked) {
