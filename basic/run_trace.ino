@@ -57,6 +57,11 @@ void run_trace(int stage) {
     // 大きく、しかもハンドルを LINE_CHECK_MIN_STEER より大きく切っている間だけ探さない（両方が外れることはまずない）
     if (cnt0 - line_obs_ms <= 20 && fabsf(obs_z2) > LINE_CHECK_MAX_ANGLE &&
         fabsf(servo_est_deg) > LINE_CHECK_MIN_STEER) check_lines = false;
+    // カーブの入口では、ハンドルが追いつくまで線が外側へずれ、斜めに見えて 4本分の幅になる（0x0f など）。
+    // 推定した線の曲がり具合が LINE_CHECK_MAX_CURV より大きく、線の向きも LINE_CHECK_CURV_ANGLE より大きい間は探さない
+    // （クロスライン・ハーフラインは直線にあるので、どちらも 0 に近い）
+    if (cnt0 - line_obs_ms <= 20 && fabsf(obs_z3) > LINE_CHECK_MAX_CURV &&
+        fabsf(obs_z2) > LINE_CHECK_CURV_ANGLE) check_lines = false;
 #endif
     // クランクを計算した円弧で曲がり終えた直後は、まだ車が斜めで、新しい中央線が斜めに太く見えて
     // ハーフラインと見間違える（LOG0019：右クランクの直後に 0x0f を右ハーフラインと判断し、車線変更してコースアウト）

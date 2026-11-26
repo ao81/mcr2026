@@ -78,13 +78,14 @@ static std::map<std::string, double> P = {
     {"servo_dps", SERVO_SPEED_DPS}, {"servo_dead", SERVO_DEAD_S}, {"line_w", 0.032}, {"cross_to", CROSS_TO_CRANK_M}, {"half_to", HALF_TO_LANE_M},
     {"lane_sec", LANE_SECTION_M}, {"lane_new", 0.0}, {"curve_r", 0.45}, {"s_rad", 0.8}, {"s_deg", 90}, {"sensor_to_axle", SENSOR_TO_REAR_AXLE_M},
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
-    {"dip", 3}, {"approach", 1.5}, {"dump", 0},
+    {"dip", 3}, {"approach", 1.5}, {"dump", 0}, {"surf_w", 0.15},
     {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
 };
 
 static Course make_course(const std::string& name) {
     Course c;
     const double W = 0.15, LW = 0.01;            // コース幅の半分、中心線の幅の半分
+    const double SW = P["surf_w"];               // カーブ・S字のコースアウトを判定する面の幅の半分（初期値 0.15。ハンドルの揺れだけを見るときに広げる）
     double y1 = P["approach"];                    // スタートから特別な線まで
     double lw = P["line_w"];
     c.dir = (name.back() == 'r') ? 1 : -1;
@@ -155,10 +156,10 @@ static Course make_course(const std::string& name) {
         c.white.rings.push_back({c1x, c1y, rs - LW, rs + LW, a1, b1});
         c.white.rings.push_back({c2x, c2y, rs - LW, rs + LW, a2, b2});
         c.white.rects.push_back({ex - LW, ey, ex + LW, ey + 4});
-        c.surface.rects.push_back({-W, -1, W, y1});
-        c.surface.rings.push_back({c1x, c1y, rs - W, rs + W, a1, b1});
-        c.surface.rings.push_back({c2x, c2y, rs - W, rs + W, a2, b2});
-        c.surface.rects.push_back({ex - W, ey, ex + W, ey + 4});
+        c.surface.rects.push_back({-SW, -1, SW, y1});
+        c.surface.rings.push_back({c1x, c1y, rs - SW, rs + SW, a1, b1});
+        c.surface.rings.push_back({c2x, c2y, rs - SW, rs + SW, a2, b2});
+        c.surface.rects.push_back({ex - SW, ey, ex + SW, ey + 4});
         c.finish = ey + 0.5;
     } else {
         c.kind = 2;
@@ -167,9 +168,9 @@ static Course make_course(const std::string& name) {
         c.white.rects.push_back({-LW, -1, LW, y1});
         c.white.rings.push_back({cx, y1, rc - LW, rc + LW, 0, M_PI});
         c.white.rects.push_back({2 * cx - LW, -1, 2 * cx + LW, y1});
-        c.surface.rects.push_back({-W, -1, W, y1});
-        c.surface.rings.push_back({cx, y1, rc - W, rc + W, 0, M_PI});
-        c.surface.rects.push_back({2 * cx - W, -1, 2 * cx + W, y1});
+        c.surface.rects.push_back({-SW, -1, SW, y1});
+        c.surface.rings.push_back({cx, y1, rc - SW, rc + SW, 0, M_PI});
+        c.surface.rects.push_back({2 * cx - SW, -1, 2 * cx + SW, y1});
         c.finish = 0.3;
     }
     return c;
@@ -241,6 +242,8 @@ int main(int argc, char** argv) {
     std::vector<int> seq;
     std::vector<double> cmd_hist;
     bool passed_mid = false;
+    // ハンドルの揺れ：本当のハンドル角度が向きを変えた回数（2度以上戻ったら1回）と、ハンドルが動いた角度の合計
+    int wob_n = 0; double wob_sum = 0, wob_ext = 0, wob_prev = 0; int wob_dir = 0;
     long total = (long)P["ms"];
     for (long t = 0; t < total; t++) {
         // センサ
@@ -273,6 +276,13 @@ int main(int argc, char** argv) {
         ang_cmd = cmd_hist.front();
         double step = P["servo_dps"] * dt;
         if (ang_cmd > steer + step) steer += step; else if (ang_cmd < steer - step) steer -= step; else steer = ang_cmd;
+        if (v > 0.3) {                                   // 2度以上戻ったら1回と数える。振れ幅はハンドルが動いた角度の合計
+            wob_sum += fabs(steer - wob_prev);
+            if (wob_dir >= 0 && steer >= wob_ext) { wob_ext = steer; if (!wob_dir && steer - wob_prev > 0) wob_dir = 1; }
+            else if (wob_dir <= 0 && steer <= wob_ext) { wob_ext = steer; if (!wob_dir && steer - wob_prev < 0) wob_dir = -1; }
+            else if (fabs(steer - wob_ext) >= 2.0) { wob_n++; wob_ext = steer; wob_dir = -wob_dir; }
+        }
+        wob_prev = steer;
         double k = tan(steer * M_PI / 180) / wb;       // + が右
         // 速さ
         double u = (pl + pr) * 0.5 / 100 * vmax;
@@ -335,7 +345,7 @@ int main(int argc, char** argv) {
     else printf("ゴールできず");
     printf("  最高 %.2f m/s", v_peak);
     if (event_ptn >= 0) printf("  曲がり始め p=%d %.2f m/s", event_ptn, v_event);
-    printf("  横G %3.0f%%  横すべり %ld ms  pattern:", lat_peak * 100, slip_ms);
+    printf("  横G %3.0f%%  横すべり %ld ms  揺れ %d回 %.0f度  pattern:", lat_peak * 100, slip_ms, wob_n, wob_sum);
     std::set<int> shown;
     for (int p : seq) if (p >= 100 && p < 800 && !shown.count(p)) { shown.insert(p); printf(" %d", p); }
     printf("\n");

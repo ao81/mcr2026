@@ -241,6 +241,7 @@ function parseOutput(text) {
   r.vpeak = m(/最高\s+([\d.]+) m\/s/);
   r.ev = r.result.match(/曲がり始め p=(\d+) ([\d.]+) m\/s/);
   r.slip = m(/横すべり\s+(\d+) ms/);
+  r.wob = m(/揺れ\s+(\d+)回/);
   r.ptns = (m(/pattern:\s*(.*)$/) || "").trim();
   return r;
 }
@@ -575,7 +576,7 @@ function renderCards() {
     else if (last && last[I.p] >= 800) { big = `ゴール前に停止 ${last[I.t]} ms`; cls = "bad"; }
     else { big = "ゴールできず"; cls = "bad"; }
     const det = r.err ? esc(r.err) : [
-      r.vpeak && `最高 ${r.vpeak} m/s`, r.ev && `曲がり始め p=${r.ev[1]} ${r.ev[2]} m/s`, `横G 最大 ${r.lat}%`, r.slip && `横すべり ${r.slip} ms`].filter(Boolean).join("・");
+      r.vpeak && `最高 ${r.vpeak} m/s`, r.ev && `曲がり始め p=${r.ev[1]} ${r.ev[2]} m/s`, `横G 最大 ${r.lat}%`, r.slip && `横すべり ${r.slip} ms`, r.wob !== undefined && r.wob !== null && `ハンドルの揺れ ${r.wob}回`].filter(Boolean).join("・");
     d.innerHTML = `<div class="rh"><input type="checkbox" ${r.show ? "checked" : ""} title="表示する">${swatch(r.ri)}
         <input type="text" value="${esc(run.name)}" title="名前（書き換えられます）">
         <button class="tiny" data-a="dup" title="この走りを複製">複製</button><button class="tiny" data-a="del" title="この走りを消す" ${S.runs.length <= 1 ? "disabled" : ""}>×</button></div>
