@@ -93,7 +93,7 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
   }
   const encountered=(lo,hi)=>seen.some(([p])=>p>=lo && p<=hi);
   const crank=target===1 || (target===6 && encountered(100,161));
-  const lane=target===2 || (target===6 && encountered(200,750));
+  const lane=target===2 || (target===6 && encountered(200,770));   // 760 / 770：グイッと曲がるレーンチェンジ
   const legacyLane=lane && (!get('USE_NEW_LANE_STEER') || encountered(320,350) || encountered(620,650));
   const trace = [4,5,6].includes(target);
   const specs = (enabled, lines) => {
@@ -118,6 +118,7 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
   specs(lane,[['LANE_START_WAIT_MS',-3,1,300]]);
   specs(lane && get('USE_NEW_LANE_STEER'),[['LANE_SEARCH_M',-0.01,0.02,0.6]]);
   specs(lane && get('USE_NEW_LANE_DISTANCE'),[['LANE_DIST_ERR',0.005,0.005,0.20]]);
+  specs(lane && get('USE_NEW_LANE_SNAP'),[['LANE_SNAP_ANGLE',1,3,get('SERVO_MAX_ANGLE')],['LANE_SNAP_LAT_MPS2',0.25,1,10],['LANE_SNAP_AHEAD_M',0.01,0.02,0.4]]);
   specs(legacyLane,[['LANE_STEER_ANGLE',1,1,get('SERVO_MAX_ANGLE')],['LANE_STRAIGHT_ANGLE',1,0,12]]);
   specs(trace,[['CURVE_DRIVE_PERCENT',2,1,100]]);
   specs(true,[['DIP_SPEED_BASE',1,1,7],['PLAN_GRIP_RATIO_LAT',0.02,0.35,1],['PLAN_GRIP_RATIO_LONG',0.02,0.35,1]]);
@@ -137,7 +138,7 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
   const switches = ['TRACTION','VMAX_LEARN'];
   if (trace) switches.push('TRACE_SPEED','CURVE_SPEED','STEER','LINE_SHAPE','CURVE_PREVIEW');
   if (crank) switches.push('CRANK_QUICK','CRANK_BRAKE','CRANK_TURN');
-  if (lane) switches.push('LANE_STEER','LANE_BRAKE','LANE_DISTANCE','LANE_WIDTH_INTERVAL','LANE_DOWN_ONLY');
+  if (lane) switches.push('LANE_STEER','LANE_BRAKE','LANE_DISTANCE','LANE_WIDTH_INTERVAL','LANE_DOWN_ONLY','LANE_SNAP');
   if (crank||lane) switches.push('BRAKE_RANGE');
   for (const sw of switches) {
     const patch = {};

@@ -1056,7 +1056,7 @@ function tuneLog(csv, cfg, selection) {
   if (!(goal > 0 && decel > 0 && old >= 0 && toM > 0 && lineW > 0)) fail('計画速度か距離の値が不足しています');
   const inRange = (p, list) => list.some(([a, b]) => p >= a && p <= b);
   const PRE = crank ? [[102, 103]] : [[202, 202], [300, 310], [502, 502], [600, 610]];
-  const TURN = crank ? [[112, 112], [152, 152]] : [[360, 370], [660, 670]];
+  const TURN = crank ? [[112, 112], [152, 152]] : [[360, 370], [660, 670], [460, 460], [760, 760]];   // 460 / 760：グイッと曲がるレーンチェンジ（USE_NEW_LANE_SNAP）
   const OLDWAY = crank ? [[110, 111], [150, 151]] : [[320, 330], [620, 630]];
   const OUT = crank ? [[121, 121], [161, 161]] : [[440, 450], [740, 750]];
   const outside = event.some(r => inRange(r.pattern, OUT));
