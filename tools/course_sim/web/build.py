@@ -55,18 +55,22 @@ def convert_config(text):
     return text, items
 
 
-def convert_switch_ifs(text):
-    """#if USE_NEW_... を if 文にする（ほかの #if はそのまま）"""
+def convert_switch_ifs(text, names=()):
+    """#if USE_NEW_... と、画面から変える値（names）を使う #if を if 文にする（ほかの #if はそのまま）"""
+    runtime_re = re.compile(r"\b(USE_NEW_[A-Z0-9_]*|%s)\b" % "|".join(map(re.escape, names))) if names else re.compile(r"\bUSE_NEW_")
     out, stack = [], []
     for line in text.split("\n"):
         s = line.strip()
         m = re.match(r"^#\s*if\s+(.*)$", s)
-        if m and "USE_NEW_" in m.group(1):
+        if m and runtime_re.search(m.group(1)):
             out.append("if (%s) {" % m.group(1)); stack.append(True); continue
         if re.match(r"^#\s*if(n?def)?\b", s):
             out.append(line); stack.append(False); continue
-        if re.match(r"^#\s*elif\b", s) and stack and stack[-1]:
-            raise SystemExit("#elif USE_NEW_... には対応していません: " + s)
+        m = re.match(r"^#\s*elif\s+(.*)$", s)
+        if m and stack and stack[-1]:
+            out.append("} else if (%s) {" % m.group(1)); continue
+        if m and runtime_re.search(m.group(1)):
+            raise SystemExit("ふつうの #if のあとの、画面から変える値を使う #elif... には対応していません: " + s)
         if re.match(r"^#\s*else\b", s):
             out.append("} else {" if stack and stack[-1] else line); continue
         if re.match(r"^#\s*endif\b", s):
@@ -91,7 +95,7 @@ def main():
         src = ['#include "mock_arduino.h"']
         for n in ["basic.ino"] + inos:
             with open(os.path.join(b, n), encoding="utf-8") as f:
-                src.append(convert_switch_ifs(f.read()))
+                src.append(convert_switch_ifs(f.read(), [it["name"] for it in items]))
         with open(os.path.join(tmp, "sketch.cpp"), "w", encoding="utf-8") as f:
             f.write("\n".join(src))
         with open(os.path.join(tmp, "web_cfg.cpp"), "w", encoding="utf-8") as f:

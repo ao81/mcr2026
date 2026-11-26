@@ -1,0 +1,67 @@
+# basic/ を変えて main に push すると、模擬の中の走行プログラムを自動で最新にする
+#   ・tools/course_sim/simulator.html を作り直す（basic/ を WebAssembly にして埋め込む）
+#   ・debug/ を basic/ に合わせる（debug/sync.sh と同じ）
+#   変わったファイルがあれば、このワークフローが main にコミットする。手元では git pull するだけでよい。
+#   GitHub の Actions のページの「Run workflow」から手で動かすこともできる。
+name: 模擬を最新の basic/ に更新
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "basic/**"
+      - "tools/course_sim/**"
+      - "tools/host_test/mock/**"
+      - "tools/config_editor.py"
+      - "debug/dbg_config.h"
+      - "debug/dbglog.ino"
+      - ".github/workflows/update-sim.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-sim
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0   # 画面に出す「basic/ を最後に変えたコミット」を調べるため
+
+      - name: WebAssembly 用のコンパイラを入れる
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld wasi-libc libc++-18-dev-wasm32 libclang-rt-18-dev-wasm32
+
+      - name: debug/ を basic/ に合わせる
+        run: python3 tools/config_editor.py --sync
+
+      - name: simulator.html を作り直す
+        run: python3 tools/course_sim/web/build.py
+
+      - name: 変わっていればコミットして push
+        run: |
+          # simulator.html は作った日も書き込むので、作った日だけが変わったときは元に戻す
+          f=tools/course_sim/simulator.html
+          if cmp -s <(git show HEAD:$f | sed 's/"built": "[^"]*"//') <(sed 's/"built": "[^"]*"//' $f); then
+            git checkout -- $f
+          fi
+          if git diff --quiet -- $f debug; then
+            echo "変更なし"; exit 0
+          fi
+          git config user.name "ao81"
+          git config user.email "183857843+ao81@users.noreply.github.com"
+          git add tools/course_sim/simulator.html debug
+          git commit -m "模擬（simulator.html）と debug/ を basic/ のコミット $(git log -1 --format=%h -- basic) に合わせて自動更新"
+          for i in 1 2 3 4; do
+            git push origin HEAD:main && exit 0
+            sleep $((i * 5))
+            git pull --rebase origin main
+          done
+          exit 1

@@ -217,7 +217,10 @@ tools/course_sim/run.sh all lane_r trace=1 | less
 
 ### 4-5. simulator.html を作り直す
 
-Linux か Windows の WSL（Ubuntu）で、次を実行します。
+**ふつうは自分で作り直す必要はありません。** `basic/` を変えて GitHub の main に push すると、GitHub Actions（`.github/workflows/update-sim.yml`）が数分で `simulator.html` を作り直し、main にコミットします。同時に `debug/` も `basic/` に合わせます（`debug/sync.sh` と同じ）。手元では `git pull` すると最新の `simulator.html` になります。画面の上の「basic/ のコミット」が push したコミットと同じなら、最新です。
+動いたかどうかは GitHub のリポジトリの「Actions」タブで見られます。そこの「模擬を最新の basic/ に更新」→「Run workflow」で、手で動かすこともできます。
+
+push する前に手元で試したいときは、Linux か Windows の WSL（Ubuntu）で、次を実行します。
 
 ```sh
 sudo apt install clang lld wasi-libc libc++-18-dev-wasm32 libclang-rt-18-dev-wasm32   # 最初の1回だけ
