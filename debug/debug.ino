@@ -62,7 +62,8 @@ static_assert(!USE_NEW_LANE_DOWN_ONLY || USE_NEW_LANE_DISTANCE, "USE_NEW_LANE_DO
 #define DEG_TO_RAD_F  0.01745329252f   // 度 → ラジアン
 // 新しい走行アルゴリズムの計算に使うグリップ（測った値 × 余裕の割合。config.h）
 #define GRIP_LAT_USE  (GRIP_LAT_MPS2 * PLAN_GRIP_RATIO_LAT)
-#define GRIP_LONG_USE (GRIP_LONG_MPS2 * PLAN_GRIP_RATIO_LONG)
+// ブレーキの減速度は、グリップから決まる値と、実車で測った BRAKE_DECEL_MPS2 の小さい方
+#define GRIP_LONG_USE ((GRIP_LONG_MPS2 * PLAN_GRIP_RATIO_LONG) < BRAKE_DECEL_MPS2 ? (GRIP_LONG_MPS2 * PLAN_GRIP_RATIO_LONG) : BRAKE_DECEL_MPS2)
 
 //========================================
 // pattern 番号（ログの pattern 列にもこの番号が記録される）

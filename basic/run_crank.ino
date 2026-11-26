@@ -285,6 +285,8 @@ void run_crank_arc(bool right) {
                 float vq = crank_turn_speed(corner_speed(1.0f / crank_q_r));
                 if (crank_plan(vq, &r, &wait)) plan_wait_m = wait;
             }
+            // 線を通り過ぎたら、CRANK_TURN_AFTER_LINE_M 以内に曲がり始める（CRK0106）
+            if (CRANK_TURN_AFTER_LINE_M >= 0.0f && plan_wait_m > dist_m + CRANK_TURN_AFTER_LINE_M) plan_wait_m = dist_m + CRANK_TURN_AFTER_LINE_M;
         }
     }
 #endif
