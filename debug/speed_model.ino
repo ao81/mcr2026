@@ -463,6 +463,25 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
 //**********************************************************************
 void crank_speed_control_new(void) {
 #if USE_NEW_CRANK_ANY_COURSE
+    if (CRANK_BRAKE_BEFORE_M > 0.0f) {
+        // 曲がり角の CRANK_BRAKE_BEFORE_M 手前（実際の距離）まで全開、そこから曲がる速さまでブレーキ。
+        // 曲がり角までの距離は COURSE_LIST の値（スタート位置が決まるまでは、あり得る中で一番短い距離）。
+        // クロスラインが太く見えたら、CRANK_WIDE_TO_M の方が短ければそちらにする（試走で1つのクランクだけ走るときも 600mm に間に合う）
+        bool on_line = (pattern == PT_CROSS_FOUND || pattern == PT_CROSS_PASS);
+        if (pattern == PT_CROSS_FOUND) crank_wide = 0;
+        if (on_line && speed_mps * (float)(cnt1 + LINE_PASS_OFFSET_MS) * 0.001f >= CRANK_WIDE_SEEN_M) crank_wide = 1;
+        float to = crank_to_m;
+        if (crank_wide && CRANK_WIDE_TO_M < to) to = CRANK_WIDE_TO_M;
+        float start = (to - CRANK_BRAKE_BEFORE_M) * CRANK_DIST_RATIO;   // クロスラインの終わりから、ブレーキを始める所まで（計算の距離）
+        if (!brake_started && dist_m < start) {
+            sp(100, 100);
+            return;
+        }
+        brake_started = 1;                         // 一度始めたら、曲がる速さに保つまで全開に戻らない
+        int pb = brake_power_for(0.0f, crank_entry_mps, CRANK_BRAKE_POWER, 0.0f);
+        sp(pb, pb);
+        return;
+    }
     // 曲がり角までの距離を使わない：曲がり角の線を見てからでも間に合う速さ（計算できなければクランクに入る速さ）まで、すぐに落とす
     if (CRANK_MIN_TO_M > 0.0f && CRANK_APPROACH_MPS == 0.0f) {
         // このコースで一番近いクランク（CRANK_MIN_TO_M 先に曲がり角がある）でちょうど間に合うように、そこまでは全開で走り、そこから減速する。

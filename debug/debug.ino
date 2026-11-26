@@ -327,6 +327,7 @@ volatile int crank_measuring;           // USE_NEW_CRANK_QUICK：1 なら曲が�
 volatile int crank_yaw_track;          // USE_NEW_CRANK_QUICK：1 なら円弧で曲がり始めたので、160 / 161 でも crank_yaw を積み上げる
 volatile int crank_unwind;             // USE_NEW_CRANK_QUICK：1 ならハンドルを戻し始めた
 volatile float crank_unwind_m;         // USE_NEW_CRANK_QUICK：ハンドルを戻し始めた所の dist_m
+int crank_wide;                       // CRANK_BRAKE_BEFORE_M：1 ならクロスラインが太い（CRANK_WIDE_SEEN_M 以上に見えた）ので、曲がり角は CRANK_WIDE_TO_M 先とみる
 float crank_app_mps;                  // USE_NEW_CRANK_ANY_COURSE：曲がり角の線を見てからブレーキをかけても間に合う一番速い速さ [m/s]（0 は計算できなかった）
 float crank_extra_m;                   // クランクの線を見つけてから円弧に入るまでに進む距離 [m]（USE_NEW_BRAKE_RANGE）
 float lane_extra_m;                    // 中央線の切れ目を見つけてからS字に入るまでに進む距離 [m]（同上）

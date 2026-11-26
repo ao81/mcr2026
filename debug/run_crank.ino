@@ -136,7 +136,13 @@ void run_crank_slow(bool right) {
 static bool crank_turned_enough() {
 #if USE_NEW_CRANK_QUICK
     if (!crank_yaw_track) return true;             // 円弧で曲がり始めていない（元の方法）ときは今までどおり
-    crank_yaw = crank_yaw + speed_mps * 0.001f * fabsf(curvature_of_angle(servo_est_deg));
+    // 161 / 121 は外輪がゆっくり前へ、内輪が逆転で、その場で回るように曲がる。出力の平均が摩擦（MOTOR_FRICTION_PERCENT）より小さいので、
+    // 速さの推定は 0 に向かい、向きの積み上げが止まってしまう（161 / 121 から出られなくなる）。
+    // そこで、摩擦を入れる前の計算の速さ（v_max × 出力の平均）を下限にする。CRANK_EXIT_MIN_YAW_DEG 70 はこの計算で決めた値
+    float v_turn = v_max_mps * (log_raw.ml + log_raw.mr) * 0.005f;
+    if (v_turn < speed_mps) v_turn = speed_mps;
+    if (v_turn < 0.0f) v_turn = 0.0f;
+    crank_yaw = crank_yaw + v_turn * 0.001f * fabsf(curvature_of_angle(servo_est_deg));
     return crank_yaw >= CRANK_EXIT_MIN_YAW_DEG * DEG_TO_RAD_F;
 #else
     return true;
@@ -205,7 +211,11 @@ void run_crank_outside(bool right) {
     // 中央線が見えたら復帰処理へ（cnt1 は0にしない）
     // 曲がる側の端だけに線が見えたときも、線はもうセンサの下を通り過ぎて曲がる側にあるので、復帰処理で線へ寄せる
     //   （この形は上の表にないので、前の出力のまま止まらずに回り続けていた。CRK0054 は 00000001 のまま 2 秒以上）
-    if (c == 0x83 || c == 0x81 || c == 0xc1 || c == (right ? 0x01 : 0x80) || c == (right ? 0x03 : 0xc0)) {
+    //   ただし曲がる側の端だけのときは、向きが CRANK_EXIT_MIN_YAW_DEG まで変わってから。
+    //   CRK0044（左 700mm）：向きが 19°しか変わっていないときに、コースの外側の白線（11111111 → 11110000 → 11000000 と流れた）を
+    //   中央線と見て 120 へ移り、ハンドルが 40〜50°に弱まって曲がり切れなかった。そのまま 121 で強く曲がり続ける
+    bool inner_only = (c == (right ? 0x01 : 0x80) || c == (right ? 0x03 : 0xc0));
+    if (c == 0x83 || c == 0x81 || c == 0xc1 || (inner_only && turned)) {
         pattern = right ? PT_CRANK_R_RETURN : PT_CRANK_L_RETURN;
     }
 }
