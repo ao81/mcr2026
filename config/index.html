@@ -1,0 +1,1220 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>パラメータ編集</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --sub: #5d6676; --line: #dde1e8;
+  --accent: #2563eb; --accent-bg: #e8effe; --chg: #b45309; --chg-bg: #fff4e0;
+  --err: #c62828; --err-bg: #fdeaea; --ok: #15803d; --ok-bg: #e6f6ec;
+  --input: #ffffff; --mono: ui-monospace, "Cascadia Mono", Consolas, "BIZ UDGothic", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --sub: #9aa3b2; --line: #2e343e;
+    --accent: #7aa2ff; --accent-bg: #1f2a44; --chg: #f0b45a; --chg-bg: #3a2c14;
+    --err: #ff7b7b; --err-bg: #3c1d1d; --ok: #6fd391; --ok-bg: #173323; --input: #12151a;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --sub: #9aa3b2; --line: #2e343e;
+  --accent: #7aa2ff; --accent-bg: #1f2a44; --chg: #f0b45a; --chg-bg: #3a2c14;
+  --err: #ff7b7b; --err-bg: #3c1d1d; --ok: #6fd391; --ok-bg: #173323; --input: #12151a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+header { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; }
+.bar h1 { font-size: 16px; margin: 0 8px 0 0; }
+button, select, .btn { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:disabled { opacity: .45; cursor: default; }
+button.small { padding: 1px 8px; font-size: 12px; }
+input[type=text], input[type=search] { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--input); color: var(--text); }
+.src { font-size: 12px; color: var(--sub); }
+.grow { flex: 1; }
+.tabs { display: flex; gap: 4px; padding: 0 16px; }
+.tab { border: 1px solid var(--line); border-bottom: none; border-radius: 6px 6px 0 0; padding: 4px 12px; cursor: pointer;
+  background: var(--bg); color: var(--sub); }
+.tab.on { background: var(--accent-bg); color: var(--text); font-weight: 600; }
+.layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+nav { position: sticky; top: 110px; align-self: start; max-height: calc(100vh - 130px); overflow: auto; font-size: 13px; }
+nav a { display: block; padding: 3px 8px; border-radius: 4px; color: var(--sub); text-decoration: none; }
+nav a:hover { background: var(--accent-bg); color: var(--text); }
+nav a .n { float: right; color: var(--chg); font-weight: 600; }
+.group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.group > h2 { font-size: 15px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--accent-bg); }
+.gnotes { padding: 8px 14px 0; color: var(--sub); font-size: 12.5px; white-space: pre-wrap; }
+.item { display: grid; grid-template-columns: minmax(180px, 260px) minmax(160px, auto) 1fr; gap: 6px 14px; padding: 10px 14px;
+  border-top: 1px solid var(--line); align-items: start; }
+.group > h2 + .item, .gnotes + .item { border-top: none; }
+.item.arr { grid-template-columns: 1fr; }
+.item.chg { background: var(--chg-bg); }
+.name { font-family: var(--mono); font-size: 13px; font-weight: 600; word-break: break-all; }
+.star { color: var(--chg); font-size: 11px; font-weight: 600; margin-left: 4px; white-space: nowrap; }
+.valbox { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.valbox input[type=text] { width: 110px; font-family: var(--mono); }
+input.bad { border-color: var(--err); background: var(--err-bg); }
+input.mod { border-color: var(--chg); }
+.orig { font-size: 11.5px; color: var(--chg); font-family: var(--mono); }
+.desc { font-size: 13px; }
+.desc .more { color: var(--sub); white-space: pre-wrap; font-size: 12.5px; margin-top: 4px; }
+.desc details summary { color: var(--accent); cursor: pointer; font-size: 12px; }
+.lead { color: var(--sub); white-space: pre-wrap; font-size: 12.5px; }
+.sw { position: relative; display: inline-block; width: 44px; height: 24px; }
+.sw input { opacity: 0; width: 0; height: 0; }
+.sw span { position: absolute; inset: 0; background: var(--line); border-radius: 12px; transition: .15s; cursor: pointer; }
+.sw span::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
+.sw input:checked + span { background: var(--ok); }
+.sw input:checked + span::before { transform: translateX(20px); }
+.swlabel { font-family: var(--mono); font-size: 12px; color: var(--sub); }
+.grid { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; overflow-x: auto; }
+.grow-row { display: flex; gap: 4px; align-items: center; }
+.ridx { width: 52px; flex: none; font-size: 11px; color: var(--sub); text-align: right; font-family: var(--mono); }
+.grow-row input[type=text] { width: 64px; font-family: var(--mono); padding: 3px 5px; text-align: right; }
+.grow-row input.ch { width: 40px; text-align: center; }
+.rlabel { font-size: 12px; color: var(--sub); white-space: nowrap; }
+.empty { text-align: center; color: var(--sub); padding: 60px 16px; }
+.empty .btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 16px 0; }
+.msg { padding: 8px 16px; font-size: 13px; display: none; }
+.msg.show { display: block; }
+.msg.ok { background: var(--ok-bg); color: var(--ok); }
+.msg.err { background: var(--err-bg); color: var(--err); }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); width: min(1000px, 94vw); max-height: 86vh; padding: 0; }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.dhead { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
+.dbody { padding: 10px 14px; overflow: auto; }
+.diff { font-family: var(--mono); font-size: 12.5px; white-space: pre; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; margin: 6px 0 14px; }
+.diff div { padding: 0 8px; }
+.diff .m { background: var(--err-bg); }
+.diff .p { background: var(--ok-bg); }
+.diff .ln { color: var(--sub); display: inline-block; width: 4.5em; }
+.hidden { display: none !important; }
+label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 800px) {
+  .layout { grid-template-columns: 1fr; padding: 16px; }
+  nav { display: none; }
+  .item { grid-template-columns: 1fr; }
+}
+[hidden] { display: none !important; }
+.work-tabs { display:flex; gap:.5rem; padding:.6rem 1rem 0; }
+.work-tabs button { border:0; border-bottom:3px solid transparent; border-radius:0; font-weight:600; }
+.work-tabs [aria-selected="true"] { border-color:var(--accent); color:var(--accent); }
+#tabs { flex-wrap:wrap; }
+#session { max-width:52rem; margin:1rem auto; padding:0 1rem 2rem; }
+#session fieldset, .tune-box { margin:0 0 1rem; padding:1rem; border:1px solid var(--line); border-radius:8px; background:var(--panel); min-width:0; }
+#session legend, #session h2 { font-weight:650; font-size:1.05rem; }
+#session h2 { margin:0; }
+#session p { margin:.5rem 0; }
+#trialLock { margin:.7rem 0 0; padding:.65rem .8rem; background:var(--accent-bg); border-radius:6px; }
+#session .choices { display:flex; gap:.6rem 1.4rem; flex-wrap:wrap; align-items:center; }
+#session input[type=number] { width:5rem; font:inherit; }
+#session input[type=file] { max-width:100%; display:block; margin:.4rem 0 .8rem; }
+#session output:not(:empty) { display:block; margin:.8rem 0 0; padding:.6rem .8rem; background:var(--accent-bg); border-radius:6px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>マイコンカー パラメータ編集</h1>
+    <button id="bLast" class="hidden"></button>
+    <button id="bDir" title="リポジトリのフォルダ（mcr2026）を選ぶと、保存した時にファイルを直接書き換えます">フォルダを開く</button>
+    <button id="bFile">ファイルを開く</button>
+    <button id="bGit">GitHub から読む</button>
+    <button id="reloadDisk" class="hidden">ディスクから再読込</button>
+    <span class="src" id="srcInfo"></span>
+    <span class="grow"></span>
+    <input type="search" id="q" placeholder="名前・説明で探す" size="12">
+    <label class="chk"><input type="checkbox" id="onlyChg">変更だけ</label>
+    <button id="bDiff" disabled>変更を見る</button>
+    <button id="bSave" class="primary" disabled>保存</button>
+  </div>
+  <div class="work-tabs" role="tablist" aria-label="作業画面">
+    <button id="editTab" role="tab" aria-controls="editPanel" aria-selected="true">設定ファイル</button>
+    <button id="tuneTab" role="tab" aria-controls="session" aria-selected="false" tabindex="-1">走行調整</button>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="msg" id="msg"></div>
+</header>
+
+<div id="editPanel" role="tabpanel" aria-labelledby="editTab">
+<div id="empty" class="empty">
+  <p>basic/config.h（調整用パラメータ）と debug/dbg_config.h（デバッグモードの設定）を読み込んで編集します。</p>
+  <div class="btns">
+    <button class="primary hidden" id="eLast"></button>
+    <button class="primary" id="eDir">フォルダを開く（直接書き換え）</button>
+    <button id="eGit">GitHub から読む（ダウンロードで保存）</button>
+  </div>
+  <p class="src">「フォルダを開く」で mcr2026 のフォルダ（WSL なら \\wsl.localhost\Ubuntu\home\ao\mcr2026）を選ぶと、「保存」で basic/config.h・debug/dbg_config.h を直接書き換え、debug/ も basic/ に合わせます（debug/sync.sh と同じ）。<br>
+  Brave では最初に1回だけ、アドレス欄に <code>brave://flags/#file-system-access-api</code> と入れて「Enabled」にし、再起動してください。2回目からは「（フォルダ名）を開く」ボタンで開けます。</p>
+</div>
+
+<div class="layout hidden" id="main">
+  <nav id="nav"></nav>
+  <div id="list"></div>
+</div>
+
+</div>
+<section id="session" role="tabpanel" aria-labelledby="tuneTab" hidden>
+  <p id="tuneSource" role="status"></p>
+  <fieldset><legend>測定する区間</legend>
+    <div class="choices">
+      <label>区間の種類 <select id="eventType" aria-describedby="sectionHint trialLockMessage"><option value="1">クランク</option><option value="4">カーブ</option><option value="2">レーンチェンジ</option><option value="5">通常走行</option><option value="6">総合</option></select></label>
+      <label><span id="numberLabel">何番目のクランク</span> <input type="number" id="eventNumber" min="1" max="999" value="1" aria-describedby="sectionHint trialLockMessage"></label>
+    </div>
+    <p id="sectionHint" aria-live="polite"></p>
+    <div id="trialLock" hidden>
+      <p id="trialLockMessage"></p>
+      <button id="trialEnd">比較を終了・採用値に戻す</button>
+    </div>
+  </fieldset>
+  <fieldset><legend>調整方法</legend><div class="choices">
+    <label><input id="singleMode" name="tuneMethod" type="radio" checked> 1走の記録・診断</label>
+    <label><input id="compareMode" name="tuneMethod" type="radio"> タイム比較（基準3走・候補最大3走）</label>
+  </div></fieldset>
+  <section class="tune-box" id="singlePanel"><h2>1走の記録・診断</h2>
+    <p>「停止・保存を設定」を押し、上部の「保存」で設定を反映してから、Arduino IDEで <code>debug/debug.ino</code> を書き込みます。</p>
+    <button id="preset">停止・保存を設定</button>
+    <p id="singleHint"></p>
+    <label id="singleUpload">専用CSVで自動調整 <input type="file" id="readLog" accept=".csv,text/csv"></label>
+    <output id="tuneResult" aria-live="polite"></output>
+  </section>
+  <section class="tune-box" id="comparePanel" hidden><h2>タイム比較</h2>
+    <p>比較を開始し、上部の「保存」で設定を反映してから <code>debug/debug.ino</code> を書き込みます。同じスタート位置から指定区間を3回走らせます。</p>
+    <button id="trialStart" class="primary">タイム比較を開始</button>
+    <p id="compareHint"></p>
+    <label>比較用CSVを追加 <input id="trialLog" type="file" accept=".csv,text/csv" multiple></label>
+    <output id="trialStatus" aria-live="polite"></output>
+    <p>数値は広い刻みから試し、改善の境目で細かくします。候補を保存・書き込みして走行し、まず2本のCSVを追加してください。画面が残り1走を求めたら3走目を測ります。途中停止したCSVはその時点で追加できます。終了時は採用値に戻して保存します。</p>
+  </section>
+</section>
+<dialog id="dlgGit">
+  <div class="dhead"><b>GitHub から読む</b><span class="grow"></span><button class="small" data-close>閉じる</button></div>
+  <div class="dbody">
+    <p>リポジトリ <input type="text" id="gRepo" value="ao81/mcr2026" size="20">
+       ブランチ <select id="gBranch"><option>main</option></select>
+       <button id="gLoad" class="primary">読み込む</button></p>
+    <p class="src">公開リポジトリから読みます。保存するとファイルをダウンロードするので、リポジトリの同じ場所に上書きしてください。</p>
+  </div>
+</dialog>
+
+<dialog id="dlgDiff">
+  <div class="dhead"><b>変更の内容</b><span class="grow"></span>
+    <label class="chk" id="copyDbgWrap"><input type="checkbox" id="copyDbg" checked>debug/ にも反映（sync.sh と同じ）</label>
+    <button id="dSave" class="primary">保存</button><button class="small" data-close>閉じる</button></div>
+  <div class="dbody" id="diffBody"></div>
+</dialog>
+
+<input type="file" id="fileIn" accept=".h" multiple class="hidden">
+<input type="file" id="folderIn" webkitdirectory multiple class="hidden">
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// 状態
+// ---------------------------------------------------------------------------
+const S = {
+  mode: null,          // 'dir' | 'file' | 'git'
+  dir: null,           // フォルダのハンドル（mode=dir）
+  files: [],           // { path, text, eol, groups, tokens:Map, edits:Map, handle }
+  workspace: 'edit',
+  activeTrial: null,
+  readingTrials: false,
+  cur: 0,
+  srcLabel: '',
+};
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------------------------------------------------------------------------
+// 解析：#define と const 配列を見つけて、値の位置（文字の番号）を覚える
+// ---------------------------------------------------------------------------
+const DEFINE_RE = /^(\s*#\s*define\s+)([A-Za-z_]\w*)(\s+)(\(\s*[-+]?\s*[0-9][\w.]*\s*\)|[-+]?[0-9][\w.]*)(\s*)(?:\/\/ ?(.*))?$/;
+const ARRAY_RE = /^\s*const\s+[A-Za-z_][\w\s]*?\s+([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)+=\s*\{/;
+const NUM_RE = /^[-+]?(?:0[xX][0-9a-fA-F]+|[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)[fFuUlL]*/;
+
+function tokType(orig) {
+  const c = orig.replace(/[()\s]/g, '');
+  if (/^'.*'$/.test(c)) return 'char';
+  if (/^[-+]?0x/i.test(c)) return 'hex';
+  if (/[.]|[0-9][fF]$/.test(c) && !/^[-+]?0x/i.test(c)) return 'float';
+  return 'int';
+}
+
+function parseFile(path, text) {
+  const lines = text.split('\n');
+  const starts = []; let o = 0;
+  for (const l of lines) { starts.push(o); o += l.length + 1; }
+  const lineOf = p => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (starts[m] <= p) lo = m; else hi = m - 1; } return lo; };
+  const strip = l => l.replace(/\r$/, '').replace(/^\s*\/\/ ?/, '');
+  const groups = []; let g = null;
+  const newGroup = (title, notes) => { g = { title, notes, items: [] }; groups.push(g); };
+  newGroup('(先頭)', []);
+  const tokens = new Map();
+  const addTok = (start, orig, extra) => {
+    const t = Object.assign({ key: path + ':' + start, start, end: start + orig.length, orig, type: tokType(orig) }, extra || {});
+    tokens.set(t.key, t); return t;
+  };
+  let pending = [], last = null, hdr = null;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].replace(/\r$/, ''); const off = starts[i];
+    if (/^\/\/\s*[=*]{8,}\s*$/.test(raw)) {
+      if (hdr === null) hdr = [];
+      else { const t = hdr.map(s => s.replace(/\s+$/, '')).filter(s => s.trim()); newGroup((t[0] || '(無題)').trim(), t.slice(1)); hdr = null; pending = []; last = null; }
+      continue;
+    }
+    if (hdr !== null) { hdr.push(strip(raw)); continue; }
+    if (/^\s*$/.test(raw)) { last = null; continue; }
+    if (/^\s+\/\//.test(raw) && last) { last.desc.push(strip(raw)); continue; }
+    if (/^\s*\/\//.test(raw)) { pending.push(strip(raw)); last = null; continue; }
+    let m = raw.match(DEFINE_RE);
+    if (m) {
+      const vs = off + m[1].length + m[2].length + m[3].length;
+      const item = { kind: 'define', name: m[2], lead: pending, desc: m[6] !== undefined ? [m[6]] : [] };
+      item.tok = addTok(vs, m[4], { align: 'left' });
+      pending = []; g.items.push(item); last = item; continue;
+    }
+    m = raw.match(ARRAY_RE);
+    if (m) {
+      const brace = off + m[0].length - 1;
+      const item = { kind: 'array', name: m[1], lead: pending, desc: [], rows: [], notes: [] };
+      pending = [];
+      const toks = [], comments = [], inner = [];
+      let depth = 0, curG = null, endAbs = -1;
+      for (let p = brace; p < text.length; p++) {
+        const c = text[p];
+        if (c === '/' && text[p + 1] === '/') {
+          const e = text.indexOf('\n', p); const end = e < 0 ? text.length : e;
+          comments.push({ line: lineOf(p), text: text.slice(p + 2, end).replace(/\r$/, '').trim() });
+          p = end - 1; continue;
+        }
+        if (c === '{') { depth++; if (depth === 2) { curG = { toks: [] }; inner.push(curG); } continue; }
+        if (c === '}') { if (depth === 2 && curG) { curG.endLine = lineOf(p); curG = null; } depth--; if (depth === 0) { endAbs = p; break; } continue; }
+        if (c === "'") {
+          const e = text.indexOf("'", p + 1);
+          const t = addTok(p, text.slice(p, e + 1), { align: 'right', line: lineOf(p) });
+          toks.push(t); if (curG) curG.toks.push(t); p = e; continue;
+        }
+        if (/[-+0-9.]/.test(c) && !/[\w.]/.test(text[p - 1])) {
+          const mm = NUM_RE.exec(text.slice(p, p + 40));
+          if (mm && /[0-9]/.test(mm[0])) {
+            const t = addTok(p, mm[0], { align: 'right', line: lineOf(p) });
+            toks.push(t); if (curG) curG.toks.push(t); p += mm[0].length - 1; continue;
+          }
+        }
+      }
+      if (endAbs < 0) { last = null; continue; }
+      const tokLines = new Set(toks.map(t => t.line));
+      if (inner.length) {
+        for (const gr of inner) {
+          const cm = comments.find(c => c.line === gr.endLine);
+          item.rows.push({ toks: gr.toks, label: cm ? cm.text : '' });
+        }
+      } else {
+        const byLine = new Map();
+        for (const t of toks) { if (!byLine.has(t.line)) byLine.set(t.line, []); byLine.get(t.line).push(t); }
+        for (const [ln, ts] of byLine) {
+          const cm = comments.find(c => c.line === ln);
+          item.rows.push({ toks: ts, label: cm ? cm.text : '' });
+        }
+      }
+      const rowLines = new Set(inner.map(gr => gr.endLine));
+      for (const c of comments) if (!tokLines.has(c.line) && !rowLines.has(c.line)) item.notes.push(c.text);
+      const endLine = lineOf(endAbs);
+      const rest = lines[endLine].replace(/\r$/, '').slice(endAbs - starts[endLine]);
+      const tm = rest.match(/^\};?\s*\/\/ ?(.*)$/);
+      if (tm) item.desc.push(tm[1]);
+      g.items.push(item); last = item; i = endLine; continue;
+    }
+    pending = []; last = null;   // その他のコード（struct, #ifndef など）
+  }
+  return { groups: groups.filter(x => x.items.length), tokens };
+}
+
+// ---------------------------------------------------------------------------
+// 値の書き方を元の値に合わせる（0.180f → 小数3けた・f付き、(-60) → かっこ付き）
+// ---------------------------------------------------------------------------
+function display(orig) {
+  const t = tokType(orig);
+  if (t === 'char') return orig.slice(1, -1);
+  const c = orig.replace(/[()\s]/g, '').replace(/[uUlL]+$/, '');
+  return t === 'hex' ? c : c.replace(/[fF]$/, '');
+}
+function format(orig, input) {
+  const t = tokType(orig);
+  const s = String(input).trim();
+  if (t === 'char') {
+    if ([...s].length !== 1 || s === "'" || s === '\\') throw '1文字で入れてください';
+    return "'" + s + "'";
+  }
+  const paren = /^\(.*\)$/.test(orig.trim());
+  const core = orig.replace(/[()\s]/g, '');
+  const suffix = (core.match(/[uUlL]+$/) || [''])[0];
+  let out;
+  if (t === 'hex') {
+    if (!/^(0x[0-9a-fA-F]+|[0-9]+)$/i.test(s)) throw '0x00 の形か整数で入れてください';
+    out = /^0x/i.test(s) ? s : '0x' + Number(s).toString(16);
+  } else {
+    const body = s.replace(/[fF]$/, '');
+    if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(body)) throw '数で入れてください';
+    const n = Number(body);
+    if (!isFinite(n)) throw '数で入れてください';
+    if (t === 'float') {
+      const dec = ((core.replace(/[fF]$/, '').split('.')[1]) || '').length;
+      const sd = /e/i.test(body) ? 6 : ((body.split('.')[1]) || '').length;
+      out = n.toFixed(Math.min(9, Math.max(dec, sd, 1)));
+      if (/[fF]$/.test(core)) out += 'f';
+    } else {
+      if (!Number.isInteger(n)) throw '整数で入れてください';
+      if (suffix && n < 0) throw '0 以上で入れてください';
+      out = (core.startsWith('+') && n >= 0 ? '+' : '') + String(n) + suffix;
+    }
+  }
+  if (paren) out = '(' + out + ')';
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 書き換えた文字列を作る（右のコメントの位置がずれないよう、空白を増減する）
+// ---------------------------------------------------------------------------
+function buildText(f) {
+  let text = f.text;
+  const list = [...f.edits.entries()].map(([k, v]) => ({ t: f.tokens.get(k), v })).sort((a, b) => b.t.start - a.t.start);
+  for (const { t, v } of list) {
+    const diff = t.orig.length - v.length;
+    if (t.align === 'left') {
+      const sp = /^[ \t]*/.exec(text.slice(t.end))[0].length;
+      const afterIsComment = text.startsWith('//', t.end + sp);
+      const ns = afterIsComment ? Math.max(1, sp + diff) : sp;
+      text = text.slice(0, t.start) + v + ' '.repeat(ns) + text.slice(t.end + sp);
+    } else {
+      let p = t.start; while (p > 0 && (text[p - 1] === ' ' || text[p - 1] === '\t')) p--;
+      const sp = t.start - p;
+      const ns = sp === 0 ? 0 : Math.max(1, sp + diff);
+      text = text.slice(0, p) + ' '.repeat(ns) + v + text.slice(t.end);
+    }
+  }
+  return text;
+}
+
+function lineDiff(a, b) {
+  const A = a.split('\n'), B = b.split('\n'); const out = [];
+  if (A.length !== B.length) return [{ n: 0, a: '(行の数が変わりました)', b: '' }];
+  for (let i = 0; i < A.length; i++) if (A[i] !== B[i]) out.push({ n: i + 1, a: A[i].replace(/\r$/, ''), b: B[i].replace(/\r$/, '') });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 表示
+// ---------------------------------------------------------------------------
+function totalEdits() { return S.files.reduce((s, f) => s + f.edits.size, 0); }
+
+function msg(text, kind) {
+  const m = $('msg'); m.textContent = text; m.className = 'msg show ' + (kind || 'ok');
+  clearTimeout(msg.t); if (kind !== 'err') msg.t = setTimeout(() => m.className = 'msg', 6000);
+}
+
+function refreshCounts() {
+  const n = totalEdits();
+  $('bSave').disabled = n === 0 && !(S.mode === 'local' && needsSync); $('bDiff').disabled = n === 0;
+  $('bSave').textContent = n ? `保存（${n}）` : '保存';
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    const k = S.files[i].edits.size; el.textContent = S.files[i].path + (k ? `（${k}）` : '');
+  });
+  const f = S.files[S.cur]; if (!f) return;
+  f.groups.forEach((g, gi) => {
+    let k = 0; for (const it of g.items) k += itemEdits(f, it);
+    const a = document.querySelector(`#nav a[data-g="${gi}"] .n`); if (a) a.textContent = k ? k : '';
+  });
+}
+function itemToks(it) { return it.kind === 'define' ? [it.tok] : it.rows.flatMap(r => r.toks); }
+function itemEdits(f, it) { return itemToks(it).filter(t => f.edits.has(t.key)).length; }
+function isSwitch(it) {
+  if (it.kind !== 'define' || !/^[01]$/.test(it.tok.orig)) return false;
+  if (/^USE_|_USE$|_ENABLE$/.test(it.name)) return true;
+  return /1\s*にすると/.test(it.desc.concat(it.lead).join('\n'));
+}
+
+function renderTabs() {
+  $('tabs').innerHTML = S.files.map((f, i) => `<div class="tab${i === S.cur ? ' on' : ''}" data-i="${i}"></div>`).join('');
+  document.querySelectorAll('.tab').forEach(el => el.onclick = () => { S.cur = +el.dataset.i; renderAll(); });
+}
+
+const measureSections = {
+  1: ['クランク','左右を合わせてスタートから数え、指定したクランクを抜けるまでを測ります。','CRK'],
+  2: ['レーンチェンジ','左右を合わせてスタートから数え、指定したレーンチェンジを抜けるまでを測ります。','LANE'],
+  4: ['カーブ','操舵が続いた区間をスタートから数え、指定したカーブから直進に戻るまでを測ります。','CURV'],
+  5: ['標識','クロスラインとハーフラインを合わせて数えます。直前の特殊区間の出口から指定標識までを測ります。最初の標識ならスタートからです。','TRCE'],
+  6: ['標識','クロスラインとハーフラインを合わせて数え、スタートから指定標識までの総合タイムを測ります。','FULL']
+};
+function renderWorkspace() {
+  const tuning = S.workspace === 'tune';
+  for (const [id,selected] of [['editTab',!tuning],['tuneTab',tuning]]) {
+    $(id).setAttribute('aria-selected',String(selected));
+    $(id).tabIndex = selected ? 0 : -1;
+  }
+  $('session').hidden = !tuning;
+  $('editPanel').hidden = tuning;
+  $('tabs').hidden = tuning;
+  $('q').hidden = tuning;
+  $('onlyChg').parentElement.hidden = tuning;
+  if (!tuning) return;
+  const active = S.activeTrial;
+  if (active) {
+    $('compareMode').checked = true;
+    $('eventType').value = active.target;
+    $('eventNumber').value = active.number;
+  }
+  const comparing = $('compareMode').checked;
+  const [kind,help,prefix] = measureSections[$('eventType').value];
+  const singleDiagnosis = ['1','2','4'].includes($('eventType').value);
+  const needed = comparing ? ['config.h','dbg_config.h','tables.h'] : ['config.h','dbg_config.h'];
+  const missing = needed.filter(name => !headerFile(name));
+  $('tuneSource').hidden = !missing.length;
+  $('tuneSource').textContent = missing.length ? '上部の「フォルダを開く」で mcr2026 を選んでください。必要なファイル：'+missing.join('、') : '';
+  $('singleMode').disabled = !!active;
+  $('eventType').disabled = $('eventNumber').disabled = !!active;
+  $('numberLabel').textContent = '何番目の'+kind;
+  $('sectionHint').textContent = help+' 1 は最初の'+kind+'です。';
+  $('trialLock').hidden = !active;
+  $('trialLockMessage').textContent = active
+    ? '比較中は同じ区間でタイムを測るため、区間と回数を固定しています。別の区間を選ぶには、今の比較を終了してください。'
+    : '';
+  $('singlePanel').hidden = comparing;
+  $('comparePanel').hidden = !comparing;
+  $('singleHint').textContent = singleDiagnosis ? '走行後、microSDの '+prefix+'NNNN.csv を1本読み込むと調整候補を表示します。' : 'この区間の '+prefix+'NNNN.csv を使って設定を調整するには、測定前に「タイム比較」を選んでください。';
+  $('singleUpload').hidden = !singleDiagnosis;
+  const candidates = {
+    1:'進入速度、ブレーキ、旋回や復帰の設定',
+    2:'車線変更への進入速度、制動、操舵や復帰の設定',
+    4:'カーブの駆動倍率、速度段階、操舵角や左右モーター出力',
+    5:'速度段階の切替時間、操舵角や左右モーター出力',
+    6:'通常走行と、基準ログに現れたクランク・車線変更などの設定'
+  };
+  $('compareHint').textContent = '比較する候補は、'+candidates[$('eventType').value]+'などです。'+prefix+'NNNN.csv を1本ずつ、または同じ設定の分をまとめて追加してください。';
+  $('preset').disabled = !!missing.length;
+  $('readLog').disabled = !headerFile('config.h');
+  $('trialStart').disabled = !!missing.length;
+  $('trialStart').textContent = active ? '比較を再開・設定を確認' : 'タイム比較を開始';
+  $('trialLog').disabled = !!missing.length || !active || S.readingTrials;
+  $('trialEnd').disabled = !active || S.readingTrials;
+}
+function switchWorkspace(tuning) {
+  S.workspace = tuning ? 'tune' : 'edit';
+  renderAll();
+}
+for (const [id,tuning] of [['editTab',false],['tuneTab',true]]) {
+  $(id).onclick = () => switchWorkspace(tuning);
+  $(id).onkeydown = e => {
+    if (!['ArrowRight','ArrowLeft','Home','End'].includes(e.key)) return;
+    e.preventDefault();
+    const target = e.key === 'End' || (e.key !== 'Home' && !tuning);
+    switchWorkspace(target);
+    $(target ? 'tuneTab' : 'editTab').focus();
+  };
+}
+for (const id of ['eventType','eventNumber','singleMode','compareMode']) $(id).onchange = () => {
+  $('tuneResult').textContent = '';
+  renderWorkspace();
+};
+
+function renderAll() {
+  renderWorkspace();
+  $('empty').classList.toggle('hidden', S.files.length > 0);
+  $('main').classList.toggle('hidden', S.files.length === 0);
+  $('srcInfo').textContent = S.srcLabel;
+  $('reloadDisk').classList.toggle('hidden', S.mode !== 'local');
+  renderTabs();
+  const f = S.files[S.cur]; if (!f) return;
+  $('nav').innerHTML = f.groups.map((g, gi) => `<a href="#g${gi}" data-g="${gi}">${esc(g.title)}<span class="n"></span></a>`).join('');
+  $('list').innerHTML = f.groups.map((g, gi) => `
+    <section class="group" id="g${gi}" data-g="${gi}">
+      <h2>${esc(g.title)}</h2>
+      ${g.notes.length ? `<div class="gnotes">${esc(g.notes.join('\n'))}</div>` : ''}
+      ${g.items.map((it, ii) => renderItem(f, it, gi, ii)).join('')}
+    </section>`).join('');
+  bindInputs(f);
+  refreshCounts(); applyFilter();
+}
+
+function descHTML(it) {
+  const lines = it.desc.filter(s => s.trim());
+  const first = lines[0] || '';
+  const rest = lines.slice(1);
+  const lead = it.lead.filter(s => s.trim());
+  let h = `<div class="desc">${esc(first)}`;
+  if (rest.length || (lead.length && it.kind === 'define' && first)) {
+    const body = (lead.length && first ? lead.concat(['']) : []).concat(rest);
+    if (body.length) h += rest.length <= 2 && !lead.length ? `<div class="more">${esc(rest.join('\n'))}</div>`
+      : `<details><summary>くわしく</summary><div class="more">${esc(body.join('\n'))}</div></details>`;
+  }
+  return h + '</div>';
+}
+
+function renderItem(f, it, gi, ii) {
+  const star = /★/.test(it.desc.concat(it.lead).join('')) ? '<span class="star">★実測</span>' : '';
+  const id = `i${gi}_${ii}`;
+  if (it.kind === 'define') {
+    const t = it.tok; const cur = f.edits.get(t.key) ?? t.orig;
+    const ed = f.edits.has(t.key);
+    let ctrl;
+    if (isSwitch(it)) {
+      ctrl = `<label class="sw"><input type="checkbox" data-k="${esc(t.key)}" ${cur === '1' ? 'checked' : ''}><span></span></label>
+              <span class="swlabel">${cur === '1' ? '1（使う）' : '0（使わない）'}</span>`;
+    } else {
+      ctrl = `<input type="text" data-k="${esc(t.key)}" value="${esc(display(cur))}" class="${ed ? 'mod' : ''}">`;
+    }
+    const leadOnly = !it.desc.filter(s => s.trim()).length && it.lead.length;
+    return `<div class="item${ed ? ' chg' : ''}" id="${id}" data-s="${esc((it.name + ' ' + it.desc.join(' ') + ' ' + it.lead.join(' ')).toLowerCase())}">
+      <div class="name">${esc(it.name)}${star}</div>
+      <div class="valbox">${ctrl}<button class="small rs ${ed ? '' : 'hidden'}" data-k="${esc(t.key)}" title="元の値に戻す">戻す</button>
+        <span class="orig">${ed ? '元: ' + esc(display(t.orig)) : ''}</span></div>
+      ${leadOnly ? `<div class="desc"><div class="lead">${esc(it.lead.join('\n'))}</div></div>` : descHTML(it)}
+    </div>`;
+  }
+  // 配列
+  const k = itemEdits(f, it);
+  let idx = 0;
+  const rows = it.rows.map(r => {
+    const from = idx; idx += r.toks.length;
+    const cells = r.toks.map(t => {
+      const cur = f.edits.get(t.key) ?? t.orig; const ed = f.edits.has(t.key);
+      return `<input type="text" data-k="${esc(t.key)}" value="${esc(display(cur))}" class="${t.type === 'char' ? 'ch ' : ''}${ed ? 'mod' : ''}" title="[${from + r.toks.indexOf(t)}] 元: ${esc(display(t.orig))}">`;
+    }).join('');
+    const ridx = it.rows.length > 1 && !r.label ? (r.toks.length > 1 ? `${from}〜${idx - 1}` : `${from}`) : (it.rows.length > 1 ? `${it.rows.indexOf(r)}` : '');
+    return `<div class="grow-row"><span class="ridx">${ridx}</span>${cells}<span class="rlabel">${esc(r.label)}</span></div>`;
+  }).join('');
+  return `<div class="item arr${k ? ' chg' : ''}" id="${id}" data-s="${esc((it.name + ' ' + it.desc.join(' ') + ' ' + it.lead.join(' ')).toLowerCase())}">
+    <div><span class="name">${esc(it.name)}</span>${star}
+      <button class="small rsa ${k ? '' : 'hidden'}" data-gi="${gi}" data-ii="${ii}">全部戻す</button></div>
+    ${it.lead.length ? `<div class="lead">${esc(it.lead.join('\n'))}</div>` : ''}
+    ${it.desc.length ? `<div class="desc">${esc(it.desc.join('\n'))}</div>` : ''}
+    ${it.notes.length ? `<div class="lead">${esc(it.notes.join('\n'))}</div>` : ''}
+    <div class="grid">${rows}</div>
+  </div>`;
+}
+
+function setEdit(f, key, input, el) {
+  const t = f.tokens.get(key);
+  let v;
+  try { v = format(t.orig, input); } catch (e) { el.classList.add('bad'); el.title = e; return false; }
+  el.classList.remove('bad'); el.title = '元: ' + display(t.orig);
+  if (v === t.orig) f.edits.delete(key); else f.edits.set(key, v);
+  el.classList.toggle('mod', f.edits.has(key));
+  const item = el.closest('.item');
+  if (item) {
+    const toks = [...item.querySelectorAll('[data-k]')].map(x => x.dataset.k);
+    const any = toks.some(k => f.edits.has(k));
+    item.classList.toggle('chg', any);
+    const rs = item.querySelector('.rs'); if (rs) rs.classList.toggle('hidden', !any);
+    const rsa = item.querySelector('.rsa'); if (rsa) rsa.classList.toggle('hidden', !any);
+    const o = item.querySelector('.orig'); if (o) o.textContent = any ? '元: ' + display(t.orig) : '';
+  }
+  refreshCounts();
+  return true;
+}
+
+function bindInputs(f) {
+  $('list').querySelectorAll('input[type=text][data-k]').forEach(el => {
+    el.addEventListener('input', () => setEdit(f, el.dataset.k, el.value, el));
+    el.addEventListener('blur', () => { if (!el.classList.contains('bad')) el.value = display(f.edits.get(el.dataset.k) ?? f.tokens.get(el.dataset.k).orig); });
+    el.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      const t = f.tokens.get(el.dataset.k); if (t.type === 'char' || t.type === 'hex') return;
+      e.preventDefault();
+      const cur = Number(el.value); if (!isFinite(cur)) return;
+      const dec = (el.value.split('.')[1] || '').length;
+      const step = (t.type === 'float' ? Math.pow(10, -Math.max(dec, 1)) : 1) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+      el.value = (cur + step).toFixed(t.type === 'float' ? Math.max(dec, 1) : 0);
+      setEdit(f, el.dataset.k, el.value, el);
+    });
+  });
+  $('list').querySelectorAll('input[type=checkbox][data-k]').forEach(el => {
+    el.addEventListener('change', () => {
+      setEdit(f, el.dataset.k, el.checked ? '1' : '0', el);
+      el.closest('.valbox').querySelector('.swlabel').textContent = el.checked ? '1（使う）' : '0（使わない）';
+    });
+  });
+  $('list').querySelectorAll('.rs').forEach(b => b.onclick = () => { f.edits.delete(b.dataset.k); renderAll(); });
+  $('list').querySelectorAll('.rsa').forEach(b => b.onclick = () => {
+    const it = f.groups[+b.dataset.gi].items[+b.dataset.ii]; itemToks(it).forEach(t => f.edits.delete(t.key)); renderAll();
+  });
+}
+
+function applyFilter() {
+  const q = $('q').value.trim().toLowerCase(); const only = $('onlyChg').checked;
+  document.querySelectorAll('.group').forEach(g => {
+    let vis = 0;
+    g.querySelectorAll('.item').forEach(it => {
+      const ok = (!q || it.dataset.s.includes(q)) && (!only || it.classList.contains('chg'));
+      it.classList.toggle('hidden', !ok); if (ok) vis++;
+    });
+    g.classList.toggle('hidden', vis === 0);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 読み込み
+// ---------------------------------------------------------------------------
+function confirmDrop() { return totalEdits() === 0 || confirm('保存していない変更があります。捨てて読み込みますか？'); }
+
+function setFiles(list, mode, label) {
+  S.files = list.map(x => {
+    const p = parseFile(x.path, x.text);
+    return { path: x.path, text: x.text, groups: p.groups, tokens: p.tokens, edits: new Map(), handle: x.handle || null, mirrorText: x.mirrorText, debugCopy: x.debugCopy || null };
+  });
+  S.mode = mode; S.srcLabel = label; S.cur = 0;
+  $('copyDbgWrap').classList.toggle('hidden', !(mode === 'dir' && S.files.some(f => f.debugCopy)));
+  renderAll();
+}
+
+async function readHandle(h) { return await (await h.getFile()).text(); }
+async function tryFile(dir, ...names) {
+  try { let d = dir; for (const n of names.slice(0, -1)) d = await d.getDirectoryHandle(n); return await d.getFileHandle(names[names.length - 1]); }
+  catch (e) { return null; }
+}
+
+const NO_FSA = 'このブラウザは、ファイルを直接書き換える機能（File System Access API）が切られています。' +
+  'Brave なら、アドレス欄に brave://flags/#file-system-access-api と入れて「Enabled」にし、Brave を再起動してください。' +
+  'Chrome・Edge はそのまま使えます。';
+async function openDir() {
+  if (!window.showDirectoryPicker) { msg(NO_FSA, 'err'); return; }
+  if (!confirmDrop()) return;
+  let dir;
+  try { dir = await window.showDirectoryPicker({ id: 'mcr2026', mode: 'readwrite' }); }
+  catch (e) { if (e.name !== 'AbortError') msg('フォルダを開けませんでした: ' + (e.message || e), 'err'); return; }
+  await loadDir(dir);
+}
+// 前回開いたフォルダ（ブラウザの中に覚えておく。次に開くときは許可を1回押すだけ）
+function idb(mode, fn) {
+  return new Promise((ok, ng) => {
+    const rq = indexedDB.open('mcr2026-param', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onerror = () => ng(rq.error);
+    rq.onsuccess = () => { const tx = rq.result.transaction('kv', mode); const r = fn(tx.objectStore('kv')); tx.oncomplete = () => ok(r && r.result); tx.onerror = () => ng(tx.error); };
+  });
+}
+async function openLastDir() {
+  try {
+    const dir = await idb('readonly', st => st.get('dir'));
+    if (!dir) return openDir();
+    if (!confirmDrop()) return;
+    if ((await dir.requestPermission({ mode: 'readwrite' })) !== 'granted') { msg('書き込みが許可されませんでした', 'err'); return; }
+    await loadDir(dir);
+  } catch (e) { openDir(); }
+}
+async function showLastDir() {
+  if (!window.showDirectoryPicker) return;
+  try {
+    const dir = await idb('readonly', st => st.get('dir'));
+    if (dir) { for (const id of ['eLast', 'bLast']) { $(id).textContent = `「${dir.name}」を開く`; $(id).classList.remove('hidden'); } }
+  } catch (e) { }
+}
+async function loadDir(dir) {
+  const list = [];
+  let cfg = await tryFile(dir, 'basic', 'config.h'), base = 'basic/';
+  if (!cfg) { cfg = await tryFile(dir, 'config.h'); base = dir.name + '/'; }
+  if (cfg) {
+    const debugCopy = base === 'basic/' ? await tryFile(dir, 'debug', 'config.h') : null;
+    list.push({ path: base + 'config.h', text: await readHandle(cfg), handle: cfg, debugCopy, mirrorText: debugCopy ? await readHandle(debugCopy) : null });
+  }
+  const table = (await tryFile(dir, 'basic', 'tables.h')) || (await tryFile(dir, 'tables.h'));
+  if (table) {
+    const debugCopy = base === 'basic/' ? await tryFile(dir, 'debug', 'tables.h') : null;
+    list.push({path:base+'tables.h', text:await readHandle(table), handle:table, debugCopy, mirrorText:debugCopy ? await readHandle(debugCopy) : null});
+  }
+  const dbg = (await tryFile(dir, 'debug', 'dbg_config.h')) || (await tryFile(dir, 'dbg_config.h'));
+  if (dbg) list.push({ path: (base === 'basic/' ? 'debug/' : dir.name + '/') + 'dbg_config.h', text: await readHandle(dbg), handle: dbg });
+  if (!list.length) { msg('選んだフォルダに basic/config.h が見つかりません。mcr2026 のフォルダを選んでください', 'err'); return; }
+  S.dir = dir;
+  try { await idb('readwrite', st => st.put(dir, 'dir')); showLastDir(); } catch (e) { }
+  setFiles(list, 'dir', `フォルダ: ${dir.name}（保存で直接書き換え）`);
+  msg(`${list.map(x => x.path).join('、')} を読み込みました`);
+}
+
+async function openFiles(fl) {
+  if (!confirmDrop()) return;
+  const list = [];
+  for (const f of fl) list.push({ path: f.name, text: await f.text() });
+  list.sort((a, b) => (a.path === 'config.h' ? -1 : 0) - (b.path === 'config.h' ? -1 : 0));
+  setFiles(list, 'file', 'ファイル（保存でダウンロード）');
+  msg(`${list.map(x => x.path).join('、')} を読み込みました`);
+}
+
+async function loadBranches() {
+  const repo = $('gRepo').value.trim();
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/branches?per_page=100`);
+    if (!r.ok) return;
+    const js = await r.json();
+    const names = js.map(b => b.name).sort((a, b) => (b === 'main') - (a === 'main'));
+    $('gBranch').innerHTML = names.map(n => `<option>${esc(n)}</option>`).join('');
+  } catch (e) { /* 一覧が取れなくても main で読める */ }
+}
+
+async function openGit() {
+  if (!confirmDrop()) return;
+  const repo = $('gRepo').value.trim(), br = $('gBranch').value;
+  const list = [];
+  for (const path of ['basic/config.h', 'basic/tables.h', 'debug/dbg_config.h']) {
+    try {
+      const r = await fetch(`https://raw.githubusercontent.com/${repo}/${encodeURIComponent(br).replace(/%2F/g, '/')}/${path}?t=${Date.now()}`);
+      if (r.ok) list.push({ path, text: await r.text() });
+    } catch (e) { }
+  }
+  $('dlgGit').close();
+  if (!list.length) { msg('GitHub から読めませんでした（リポジトリ名・ブランチ・ネットワークを確かめてください）', 'err'); return; }
+  setFiles(list, 'git', `GitHub: ${repo} ${br}（保存でダウンロード）`);
+  msg(`${list.map(x => x.path).join('、')} を読み込みました`);
+}
+
+// ---------------------------------------------------------------------------
+// 変更の確認と保存
+// ---------------------------------------------------------------------------
+function showDiff() {
+  let h = '';
+  for (const f of S.files) {
+    if (!f.edits.size) continue;
+    const d = lineDiff(f.text, buildText(f));
+    h += `<h3>${esc(f.path)}（${f.edits.size} 個の値）</h3><div class="diff">` +
+      d.map(x => `<div class="m"><span class="ln">${x.n}</span>- ${esc(x.a)}</div><div class="p"><span class="ln">${x.n}</span>+ ${esc(x.b)}</div>`).join('') + '</div>';
+  }
+  $('diffBody').innerHTML = h || '<p>変更はありません</p>';
+  $('dSave').textContent = S.mode === 'local' ? '設定とスケッチを同期' : S.mode === 'dir' ? '保存（ファイルを書き換え）' : '保存（ダウンロード）';
+  $('dlgDiff').showModal();
+}
+
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  a.download = name.split('/').pop(); document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function writeHandle(h, text) {
+  if (h.queryPermission && (await h.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+    if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('書き込みが許可されませんでした');
+  }
+  const w = await h.createWritable(); await w.write(text); await w.close();
+}
+
+const DBG_OWN = new Set(['dbglog.ino', 'dbg_config.h']);
+const DBG_HOOKS = [
+  ['#include "config.h"', '#include "dbg_config.h"       // デバッグモードの設定（debug/ だけ）\nvoid dbg_sample(void);           // dbglog.ino\nvoid dbg_task(void);             // dbglog.ino'],
+  ['speed_model_update();', '    dbg_sample();                        // デバッグモード：詳しいログを RAM に貯める（dbglog.ino）'],
+  ['log_task();', '    dbg_task();             // デバッグモード：走り終わった後に dbgNNNN.csv へ書き出す（dbglog.ino）'],
+];
+function debugSketch(src) {
+  const eol = src.includes('\r\n') ? '\r\n' : '\n';
+  const lines = src.split(/\r?\n/); if (lines[lines.length - 1] === '') lines.pop();
+  for (const [anchor, extra] of DBG_HOOKS) {
+    const hits = lines.map((l, i) => l.split('//')[0].trim() === anchor ? i : -1).filter(i => i >= 0);
+    if (hits.length !== 1) throw Error('basic.ino で「' + anchor + '」の場所が1つに決まりません');
+    lines.splice(hits[0] + 1, 0, ...extra.split('\n'));
+  }
+  return lines.join(eol) + eol;
+}
+// basic/ の .h と .ino を debug/ にコピーし、basic.ino から debug.ino を作る（変わったファイルだけ書く）
+async function syncDebug() {
+  let basic, debug;
+  try { basic = await S.dir.getDirectoryHandle('basic'); debug = await S.dir.getDirectoryHandle('debug'); } catch (e) { return 0; }
+  let n = 0;
+  for await (const [name, h] of basic.entries()) {
+    if (h.kind !== 'file' || !/\.(h|ino)$/.test(name) || DBG_OWN.has(name) || name === 'debug.ino') continue;
+    const src = await readHandle(h);
+    const dst = name === 'basic.ino' ? 'debug.ino' : name, text = name === 'basic.ino' ? debugSketch(src) : src;
+    const dh = await debug.getFileHandle(dst, { create: true });
+    if ((await readHandle(dh)) !== text) { await writeHandle(dh, text); n++; }
+  }
+  return n;
+}
+
+async function save() {
+  const dbg = headerFile('dbg_config.h');
+  try {
+    if (dbg && (setting(dbg,'DBG_INTERVAL_MS') < 1 || setting(dbg,'DBG_SAMPLES') < 1)) throw Error('記録間隔と件数は1以上で指定してください');
+  } catch(e) { $('dlgDiff').close(); msg(e.message,'err'); return; }
+  if (S.mode === 'local') {
+    if (!saving) try { await saveDisk(); } catch(e) { $('dlgDiff').close(); msg(e.message,'err'); }
+    return;
+  }
+  const done = [];
+  try {
+    if (S.mode === 'dir' && $('copyDbg').checked) {
+      for (const f of S.files.filter(f => f.debugCopy && f.edits.size)) {
+        if (await readHandle(f.debugCopy) !== f.mirrorText) throw Error(f.debugCopy.name + ' に外部変更があります。フォルダを開き直してください');
+      }
+    }
+    for (const f of S.files) {
+      if (!f.edits.size) continue;
+      const nt = buildText(f);
+      if (S.mode === 'dir') {
+        const now = await readHandle(f.handle);
+        if (now !== f.text && !confirm(`${f.path} は読み込んだ後に書き換えられています（git pull など）。\nこのまま上書きすると、その変更は消えます。上書きしますか？\n（やめて「フォルダを開く」で読み直すのが安全です）`)) continue;
+        await writeHandle(f.handle, nt); done.push(f.path);
+      } else {
+        download(f.path, nt); done.push(f.path.split('/').pop() + '（ダウンロード）');
+      }
+      const p = parseFile(f.path, nt);
+      f.text = nt; f.groups = p.groups; f.tokens = p.tokens; f.edits = new Map();
+    }
+    if (S.mode === 'dir' && done.length && $('copyDbg').checked) {
+      const n = await syncDebug();
+      for (const f of S.files) if (f.debugCopy) f.mirrorText = await readHandle(f.debugCopy);
+      if (n) done.push(`debug/ の ${n} ファイル`);
+    }
+  } catch (e) { msg('保存できませんでした: ' + (e.message || e), 'err'); renderAll(); return; }
+  $('dlgDiff').close();
+  renderAll();
+  if (done.length) msg('保存しました: ' + done.join('、') + (S.mode === 'dir' ? '' : '。リポジトリの同じ場所に上書きしてください'));
+}
+
+// ---------------------------------------------------------------------------
+// ボタン
+// ---------------------------------------------------------------------------
+// ローカル版は同一オリジンのPythonサーバがスケッチと設定をまとめて同期する。
+let diskRevision = '', needsSync = false, saving = false;
+function acceptDisk(data) {
+  diskRevision = data.revision;
+  needsSync = data.needsSync;
+  setFiles(data.files, 'local', needsSync ? '走行コードに未同期の変更があります' : 'ローカル同期済み');
+}
+async function refreshDisk(force = false) {
+  if (saving || (S.mode && S.mode !== 'local' && !force)) return;
+  const previous = diskRevision;
+  const response = await fetch('/api/config', {cache:'no-store'});
+  if (!response.ok) throw Error('ローカル同期サーバに接続できません');
+  const data = await response.json();
+  if (saving || diskRevision !== previous || (!force && data.revision === previous)) return;
+  if (totalEdits() && !force) {
+    msg('外部変更を検出しました。編集を残したまま保存を保留します。再読込でディスクの値を確認できます。','err');
+    return;
+  }
+  acceptDisk(data);
+}
+async function saveDisk() {
+  saving = true;
+  try {
+    const edits = Object.fromEntries(S.files.filter(f => f.edits.size).map(f => [f.path, buildText(f)]));
+    const response = await fetch('/api/config', {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({revision:diskRevision, edits})});
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error || '同期に失敗しました');
+    acceptDisk(data);
+    $('dlgDiff').close();
+    msg('設定と debug/debug.ino を同期しました');
+  } finally { saving = false; }
+}
+
+function field(file, name) {
+  const item = file?.groups.flatMap(g => g.items).find(it => it.name === name && it.kind === 'define');
+  if (!item) throw Error(name + ' がありません。統合版のリポジトリを読み込んでください');
+  return item.tok;
+}
+function setting(file, name) {
+  const t = field(file, name);
+  return Number(display(file.edits.get(t.key) ?? t.orig));
+}
+function stageValues(file, values) {
+  const pending = Object.entries(values).map(([name,value]) => {
+    const t = field(file, name);
+    return [t, format(t.orig, value)];
+  });
+  for (const [t, value] of pending) {
+    if (value === t.orig) file.edits.delete(t.key); else file.edits.set(t.key,value);
+  }
+  renderAll();
+}
+function headerFile(name) {
+  return S.files.find(f => f.path.split('/').pop() === name);
+}
+function prepareRun() {
+  const n = Number($('eventNumber').value);
+  if (!Number.isInteger(n) || n < 1 || n > 999) throw Error('回数は1〜999で指定してください');
+  stageValues(headerFile('dbg_config.h'), {DBG_ENABLE:1, DBG_AUTO_STOP:1, DBG_TARGET:Number($('eventType').value),
+    DBG_TARGET_NO:n, DBG_POST_MS:0, DBG_INTERVAL_MS:Number($('eventType').value) >= 5 ? Math.max(1, Math.ceil(setting(headerFile('config.h'),'AUTO_STOP_MS') / setting(headerFile('dbg_config.h'),'DBG_SAMPLES'))) : $('eventType').value === '4' ? 10 : 5});
+  msg('区間終了で車体を停止する設定を用意しました。保存後、debug/debug.ino を書き込んでください');
+}
+
+function parseDebugCsv(csv) {
+  const rows = [], params = {}, flags = {}, meta = {};
+  let cols, completed = false;
+  const fail = message => { throw Error(message); };
+  for (const line of csv.trim().split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    if (completed) fail('CSVの終端以降にデータがあります');
+    const cells = line.split(',');
+    if (line.startsWith('#')) {
+      const [tag, ...pairs] = cells;
+      if (tag === '#param') params[pairs[0]] = Number(pairs[1]);
+      else if (tag === '#complete') {
+        if (+pairs[0] !== rows.length) fail('ログの行数が一致しません');
+        completed = true;
+      } else {
+        for (let i = tag === '#switch' ? 0 : -1; i + 1 < pairs.length; i += 2) {
+          const key = i < 0 ? tag.slice(1) : pairs[i];
+          (tag === '#switch' ? flags : meta)[key] = Number(pairs[i + 1]);
+        }
+      }
+      continue;
+    }
+    if (!cols) {
+      cols = cells;
+      for (const k of ['ms','pattern','speed_mm_s','servo_deg10','model_ok','steer_deg10','motor_l','motor_r']) {
+        if (!cols.includes(k)) fail('専用ログの列がありません: ' + k);
+      }
+      continue;
+    }
+    if (cells.length !== cols.length) fail('CSVの列数が一致しません');
+    const row = Object.fromEntries(cols.map((k,i) => [k, Number(cells[i].replace(/^'/,''))]));
+    if (cells.some(x => !x.trim()) || Object.values(row).some(x => !Number.isFinite(x))) fail('数値の壊れたログです');
+    if (rows.length && row.ms - rows[rows.length-1].ms !== meta.interval_ms) fail('ログの時系列が連続していません');
+    rows.push(row);
+  }
+  if (!completed || meta.dbg !== 1 || !rows.length || !Number.isInteger(meta.interval_ms) || meta.interval_ms < 1) fail('詳細CSVの書き出し完了を確認できません');
+  return {rows, params, flags, meta};
+}
+
+function tuneLog(csv, cfg, selection) {
+  const {rows, params, flags, meta} = parseDebugCsv(csv);
+  const fail = message => { throw Error(message); };
+  if (selection && (meta.target !== selection.target || meta.target_no !== selection.number)) {
+    fail('CSVの測定区間と画面の指定が違います。区間の種類と何番目かを確認してください。');
+  }
+  if (meta.target === 5 || meta.target === 6) fail('通常走行・総合は「タイム比較を開始」して比較用CSVを追加してください');
+  // クランク・レーンチェンジの途中でコースアウトなどで止まった（reason 2）ログも、区間の始まりが入っていれば使う
+  // （はみ出したこと自体が「速すぎた」証拠になる。ブレーキを早める側にだけ調整する）
+  let stoppedEarly = false;
+  if (meta.dbg === 1 && meta.reason === 2 && (meta.target === 1 || meta.target === 2) &&
+      meta.trigger_ms > 0 && !(meta.end_ms > meta.trigger_ms) && rows.length && rows[rows.length-1].ms >= meta.trigger_ms) {
+    meta.end_ms = rows[rows.length-1].ms + meta.interval_ms;
+    stoppedEarly = true;
+  }
+  if (meta.dbg !== 1 || meta.reason !== (stoppedEarly ? 2 : 1) || !(meta.end_ms > meta.trigger_ms) || !(meta.interval_ms > 0)) fail('対象区間の完走と書き出し完了を確認できません');
+  const event = rows.filter(r => r.ms >= meta.trigger_ms && r.ms < meta.end_ms);
+  if (event.length < 3 || event[0].ms - meta.trigger_ms >= meta.interval_ms ||
+      meta.end_ms - event[event.length-1].ms > meta.interval_ms) fail('区間全体が必要です。記録時間を長くして再走してください');
+  if (event.some(r => r.model_ok !== 1 || r.speed_mm_s < 0)) fail('区間内の速度推定を使用できません');
+  function baseline(name) {
+    const v = params[name];
+    if (!Number.isFinite(v) || Math.abs(setting(cfg,name)-v) > 0.00051) fail('走行時の設定と一致しません: ' + name);
+    return v;
+  }
+  // ---- ここから調整の計算 ----
+  // 推定した速さ（speed_mm_s）は、走りながらモデルで積み上げた値なので、それだけで比べると
+  // 「モデルが思っている速さ」と「計画の速さ」を比べることになり、ずれていても気づけない。
+  // そこで、ログの中にある実測（クランクの曲がり角の線の通過時間、線を見つけた位置までの距離）で直してから比べる。
+  const cfgOr = (n, d) => { try { return setting(cfg, n); } catch (e) { return d; } };
+  const iv = meta.interval_ms;
+  const changes = [], notes = [];
+  const add = (n, v, why) => {
+    const old = setting(cfg, n);
+    if (Math.abs(old - v) > 1e-9) changes.push({ name: n, old, next: v, why });
+  };
+  if (meta.target === 4) {
+    const name = 'CURVE_DRIVE_PERCENT';
+    const old = baseline(name), wheelbase = baseline('WHEELBASE_M');
+    const limit = baseline('GRIP_LAT_MPS2') * baseline('PLAN_GRIP_RATIO_LAT');
+    if (!(wheelbase > 0 && limit > 0 && old > 0 && old <= 100)) fail('車体の設定を確認してください');
+    // サーボの推定角度は、センサの段差で数十msごとに行き来する。車の向きはその揺れにはついていけないので、
+    // 曲率を 50ms でならしてから横の加速度にする（揺れの山を横すべりと見間違えない）
+    const win = Math.max(1, Math.round(50 / iv));
+    const curv = event.map(r => Math.tan(r.servo_deg10 * Math.PI / 1800) / wheelbase);
+    const loads = [];
+    event.forEach((r, i) => {
+      if (Math.abs(r.steer_deg10) < 50 || Math.max(r.motor_l, r.motor_r) <= 0) return;
+      const a = Math.max(0, i - (win >> 1)), b = Math.min(event.length, a + win);
+      let k = 0; for (let j = a; j < b; j++) k += curv[j]; k /= (b - a);
+      loads.push((r.speed_mm_s / 1000) ** 2 * Math.abs(k));
+    });
+    loads.sort((a, b) => a - b);
+    if (loads.length < Math.max(3, Math.round(60 / iv))) fail('カーブ中の駆動データが不足しています（60ms 以上必要）');
+    const lat = loads[Math.floor(0.9 * (loads.length - 1))];
+    // 横の加速度は速さの2乗、速さは出力にほぼ比例するので、出力の倍率は √(目標 ÷ 今) 倍にする
+    let next = old;
+    if (lat > limit * 1.05) next = Math.max(1, old - 5, Math.floor(old * Math.sqrt(limit / lat)));
+    else if (lat < limit * 0.85 && old < 100) next = Math.min(100, old + 5, Math.floor(old * Math.sqrt(limit * 0.95 / lat)));
+    add(name, next, '横の加速度 ' + lat.toFixed(2) + ' / 上限 ' + limit.toFixed(2) + ' m/s²');
+    return { changes, detail: '推定した横の加速度（曲率を50msでならした値の90パーセンタイル） ' + lat.toFixed(2) + ' m/s²、設定の上限 ' + limit.toFixed(2) + ' m/s²', notes };
+  }
+  if (meta.target !== 1 && meta.target !== 2) fail('自動調整の対象外の区間です');
+  const crank = meta.target === 1, prefix = crank ? 'CRANK' : 'LANE';
+  const name = prefix + '_BRAKE_MARGIN_M';
+  if (flags[prefix + '_BRAKE'] !== 1 || setting(cfg, 'USE_NEW_' + prefix + '_BRAKE') !== 1) fail('計算による減速が無効なのでマージンは調整できません');
+  const old = baseline(name);
+  const decel = baseline('GRIP_LONG_MPS2') * baseline('PLAN_GRIP_RATIO_LONG');
+  const goal = params[crank ? 'crank_entry_mps' : 'lane_entry_mps'];
+  const extra = Math.max(0, params[crank ? 'crank_extra_m' : 'lane_extra_m'] || 0);
+  const toM = params[crank ? 'crank_to_m' : 'lane_to_m'];
+  const lineW = params[crank ? 'crank_line_w_m' : 'lane_line_w_m'];
+  if (!(goal > 0 && decel > 0 && old >= 0 && toM > 0 && lineW > 0)) fail('計画速度か距離の値が不足しています');
+  const inRange = (p, list) => list.some(([a, b]) => p >= a && p <= b);
+  const PRE = crank ? [[102, 103]] : [[202, 202], [300, 310], [502, 502], [600, 610]];
+  const TURN = crank ? [[112, 112], [152, 152]] : [[360, 370], [660, 670]];
+  const OLDWAY = crank ? [[110, 111], [150, 151]] : [[320, 330], [620, 630]];
+  const OUT = crank ? [[121, 121], [161, 161]] : [[440, 450], [740, 750]];
+  const outside = event.some(r => inRange(r.pattern, OUT));
+  if (stoppedEarly && !outside) fail('区間の途中で停止しました。手動停止・時間切れ・脱線は同じ停止コードなので、車体の動きを確認して同じ区間を取り直してください');
+  if (stoppedEarly) notes.push('区間の途中で止まったログです（コースアウトなど）。ブレーキを早める側にだけ調整しました');
+  const oldWay = event.some(r => inRange(r.pattern, OLDWAY));
+  // 曲がり角の線（中央線の切れ目）を見つけた所。その直前の行の距離 + 半分の間隔を、見つけた位置の推定とする
+  const ti = event.findIndex(r => inRange(r.pattern, TURN));
+  if (ti < 0) {
+    // 計画の円弧で曲がらなかった（速すぎて元の方法に切り替えた、など）。速さで比べられないので、ブレーキを早める側にだけ動かす
+    if (!oldWay && !outside) fail('旋回開始点が見つかりません');
+    const next = Number(Math.min(0.3, old + 0.02).toFixed(3));
+    add(name, next, '計画どおりに曲がれなかった');
+    return { changes, detail: '計画の円弧で曲がれず' + (outside ? '、外へはみ出しました' : '、元の方法で曲がりました') + '（曲がり始めが計画より速い）。ブレーキを 0.02 m 早めます', notes };
+  }
+  const pre = event[ti - 1];
+  if (!pre || !inRange(pre.pattern, PRE)) fail('線を見つける直前のログがありません');
+  const seenEarly = crank ? (cfgOr('CENTER_LINE_WIDTH_M', 0.02) + cfgOr('LINE_SEEN_EXTRA_M', 0)) / 2 : 0;
+  const expect = toM - seenEarly;                       // 線の終わりから、センサが曲がり角の線を見つけるまでの本当の距離
+  const dEst = pre.dist_mm / 1000 + pre.speed_mm_s / 1000 * iv / 2000;
+  let rd = expect / dEst;                               // 距離の比 = その間の速さの推定の比（本当 ÷ 推定）
+  if (!(dEst > 0.1 && rd > 0.75 && rd < 1.33)) { notes.push('線を見つけた距離が表の値と大きく違うので、距離の照合を使いませんでした（COURSE_LIST の距離・順番を確認）'); rd = null; }
+  // クランク（USE_NEW_CRANK_QUICK）：曲がり角の線を通過した時間で速さを測り直している（measuring が 1 → 0）
+  //   ただし、その測定が物理的にあり得ない値（ブレーキで出せる減速より大きく落ちた、ブレーキ中に速くなった）なら使わない
+  let rc = null, rcBad = null;
+  if (crank) {
+    for (let i = ti + 1; i < event.length && inRange(event[i].pattern, TURN); i++) {
+      if (event[i - 1].measuring === 1 && event[i].measuring === 0) {
+        const vb = event[i - 1].speed_mm_s / 1000, va = event[i].speed_mm_s / 1000;
+        const bi = event.findIndex(r => r.brake === 1);
+        const v0 = (bi >= 0 && bi < i ? event[bi].speed_mm_s / 1000 : vb) * (rd || 1);
+        const tb = bi >= 0 && bi < i ? (event[i].ms - event[bi].ms) / 1000 : 0;
+        const lo = v0 - 1.3 * baseline('GRIP_LONG_MPS2') * tb - 0.05;
+        const hi = (bi >= 0 && bi < i ? v0 : vb * (rd || 1) * 1.08) + 0.05;
+        if (va >= lo && va <= hi && vb > 0) rc = { at: i, r: va / vb };
+        else if (vb > 0) rcBad = { at: i, k: vb * (rd || 1) / va };
+        break;
+      }
+    }
+    if (rcBad) notes.push('曲がり角の線で測った速さ（' + (event[rcBad.at].speed_mm_s / 1000).toFixed(2) + ' m/s）が、ブレーキの効きから考えてあり得ない値でした。線の見間違いとみて使っていません（走行プログラムもこの値で速さを直しているので、外へ出やすくなります）');
+  }
+  const kPre = rc ? rc.r : (rd || 1);                    // 測り直す前の推定にかける比
+  const fixed = i => rc ? i >= rc.at : (!crank && cfgOr('USE_NEW_LANE_DISTANCE', 0) === 1 && i >= ti);
+  const kPost = i => rcBad && i >= rcBad.at ? rcBad.k : 1;   // 見間違いの測定で直された後の推定を、本当の速さに戻す比
+  const vTrue = i => event[i].speed_mm_s / 1000 * (fixed(i) ? 1 : (rcBad && i >= rcBad.at ? kPost(i) : kPre));
+  // ブレーキの目標地点（見つけた所 + extra）に着いた行。その時の本当の速さが計画の速さ goal になっているはず
+  let ai = -1;
+  for (let i = ti; i < event.length && inRange(event[i].pattern, TURN); i++) if (event[i].dist_mm / 1000 >= extra) { ai = i; break; }
+  if (ai < 0) {
+    if (!outside) {
+      let furthest=0;
+      for (let i=ti;i<event.length && inRange(event[i].pattern,TURN);i++) furthest=Math.max(furthest,event[i].dist_mm);
+      fail('旋回中に記録した最大距離 '+furthest+' mm / 目標 '+Math.round(extra*1000)+' mm。旋回開始を判定できません。DBG_INTERVAL_MS を短くし、区間全体が残る件数で再測定してください');
+    }
+    const next = Number(Math.min(0.3, old + 0.02).toFixed(3));
+    add(name, next, '曲がり始める前に止まった');
+    return { changes, detail: '曲がり始める前に外へ出て止まりました。ブレーキを 0.02 m 早めます', notes };
+  }
+  const vArc = vTrue(ai);
+  // 計画の速さまで落ちた所から目標地点までの距離（本当に残っていた余裕）
+  let slack = null;
+  for (let i = 0; i < ai; i++) {
+    const r = event[i];
+    if (!(inRange(r.pattern, PRE) || i >= ti) || !(r.brake === 1 || i >= ti)) continue;
+    if (vTrue(i) > goal + 0.05) continue;
+    slack = i < ti ? (expect - r.dist_mm / 1000 * (rd || kPre)) + extra : extra - r.dist_mm / 1000;
+    break;
+  }
+  // 落ちきらなかったときは、足りなかった距離をマイナスの余裕とする
+  if (slack === null) slack = -Math.max(0, vArc * vArc - goal * goal) / (2 * decel);
+  // 余裕の目標：距離の推定の誤差（距離の5%、最低 3cm）
+  const want = Math.max(0.03, 0.05 * toM);
+  const err = want - slack;
+  let step = Math.abs(err) < 0.01 ? 0 : err > 0 ? Math.min(0.03, err) : Math.max(-0.01, err / 2);
+  // 曲がり角の線で測り直せなかったときは、ブレーキの間の本当の速さが分からない（距離の照合は、ほとんど全開の区間の平均）。
+  // 推定だけで「余裕がある」と判断してブレーキを遅らせるのは危ないので、減らす方向には動かさない
+  if (!rc && step < 0) { step = 0; notes.push('曲がり角の線で速さを測り直せなかったので、マージンを減らす方向には動かしていません'); }
+  if ((outside || oldWay) && step < 0.01) step = 0.01;
+  // 線の幅の見え方：距離の比が、線の通過時間を 1ms 単位で数える誤差より大きくずれていたら、線の幅を直す（速さの測り方の元）
+  const lp = pre.line_pass_ms || event.find(r => r.line_pass_ms > 0)?.line_pass_ms || 0;
+  const offs = cfgOr('LINE_PASS_OFFSET_MS', 1);
+  const tolQ = lp > 0 ? 1 / (lp + offs) + 0.02 : 1;
+  const scale = rc && rd ? (Math.abs(rc.r - rd) < 0.08 ? (rc.r + rd) / 2 : null) : (rd || null);
+  let widthMsg = '';
+  if (scale && Math.abs(scale - 1) > tolQ) {
+    const useList = cfgOr('COURSE_LIST_USE', 0) === 1;
+    const wName = useList ? 'LINE_SEEN_EXTRA_M' : (crank ? 'CROSS_LINE_WIDTH_M' : 'HALF_LINE_WIDTH_M');
+    const wOld = setting(cfg, wName);
+    const dW = Math.max(-0.006, Math.min(0.006, lineW * (scale - 1) * 0.5));   // 1回では半分だけ直す（通過時間の誤差を平均するため）
+    const wNext = Number(Math.max(useList ? -0.01 : 0.005, wOld + dW).toFixed(3));
+    add(wName, wNext, '速さの測り方のずれ ' + ((scale - 1) * 100).toFixed(0) + '%');
+    widthMsg = '。線を通過した時間から測った速さが本当より ' + Math.abs((scale - 1) * 100).toFixed(0) + '% ' + (scale > 1 ? '遅く' : '速く') +
+      '出ていました（線の幅の見え方 ' + (lineW * 1000).toFixed(0) + 'mm → 約 ' + (lineW * scale * 1000).toFixed(0) + 'mm）。先に ' + wName + ' を直し、マージンは' + (step > 0 ? '増やす分だけ' : '変えません');
+    if (step < 0) step = 0;
+  }
+  const next = Number(Math.max(0, Math.min(0.3, old + step)).toFixed(3));
+  add(name, next, '余裕 ' + (slack * 1000).toFixed(0) + 'mm / 目標 ' + (want * 1000).toFixed(0) + 'mm');
+  const src = rc ? '曲がり角の線で測った速さ' : rd ? '線を見つけた距離' : '推定の速さ（実測なし）';
+  if (!rc && !rd) notes.push('実測で直せなかったので、推定の速さのままで計算しました（精度は低い）');
+  const detail = '曲がり始めの速さ ' + vArc.toFixed(2) + ' m/s（' + src + 'で補正）/ 計画 ' + goal.toFixed(2) + ' m/s、' +
+    (slack >= 0 ? '計画の速さまで落ちてから曲がり始めまで ' + (slack * 1000).toFixed(0) + 'mm（目標 ' + (want * 1000).toFixed(0) + 'mm）'
+                : '計画の速さまで落ちきらず、あと ' + (-slack * 1000).toFixed(0) + 'mm 足りない') +
+    (outside ? '、外へはみ出しました' : '') + widthMsg;
+  return { changes, detail, notes };
+}
+
+$('preset').onclick = () => { try { prepareRun(); } catch(e) { msg(e.message || e,'err'); } };
+$('readLog').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const cfg = headerFile('config.h');
+    const result = tuneLog(await file.text(),cfg,{target:Number($('eventType').value),number:Number($('eventNumber').value)});
+    if (result.changes.length) stageValues(cfg, Object.fromEntries(result.changes.map(c => [c.name, c.next])));
+    $('tuneResult').textContent = result.detail + '。' +
+      (result.changes.length ? result.changes.map(c => c.name + ' ' + c.old + ' → ' + c.next).join('、') + '（保存で反映）' : '値はそのままでよい範囲です') +
+      (result.notes.length ? '　※' + result.notes.join('　※') : '');
+  } catch(err) { $('tuneResult').textContent = err.message || String(err); }
+  e.target.value = '';
+};
+$('reloadDisk').onclick = async () => {
+  if (confirmDrop()) try { await refreshDisk(true); } catch(e) { msg(e.message,'err'); }
+};
+if (location.hostname === '127.0.0.1' && location.protocol === 'http:') {
+  refreshDisk().catch(() => {});
+  window.addEventListener('focus', () => { if (S.mode === 'local') refreshDisk().catch(e => msg(e.message,'err')); });
+}
+
+$('folderIn').onchange = async event => {
+  const files = Array.from(event.target.files);
+  event.target.value = '';
+  if (!files.length || !confirmDrop()) return;
+  try {
+    const list = [];
+    for (const file of files) {
+      const path = file.webkitRelativePath.split('/').slice(1).join('/');
+      if (path === 'basic/config.h' || path === 'basic/tables.h' || path === 'debug/dbg_config.h') list.push({path, text:await file.text()});
+    }
+    if (!list.length) throw Error('mcr2026 フォルダを選択してください');
+    setFiles(list, 'file', 'フォルダ読込（保存でダウンロード）');
+  } catch(e) { msg(e.message,'err'); }
+};
+if (!window.showDirectoryPicker) { $('eDir').textContent = 'フォルダを開く（このブラウザでは設定が必要）'; $('eDir').title = NO_FSA; }
+$('bDir').onclick = $('eDir').onclick = openDir;
+$('bLast').onclick = $('eLast').onclick = openLastDir;
+showLastDir();
+$('bFile').onclick = () => $('fileIn').click();
+$('fileIn').onchange = e => { if (e.target.files.length) openFiles([...e.target.files]); e.target.value = ''; };
+$('bGit').onclick = $('eGit').onclick = () => { $('dlgGit').showModal(); loadBranches(); };
+$('gLoad').onclick = openGit;
+$('bDiff').onclick = showDiff;
+$('bSave').onclick = showDiff;
+$('dSave').onclick = save;
+$('q').oninput = applyFilter;
+$('onlyChg').onchange = applyFilter;
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
+window.addEventListener('beforeunload', e => { if (totalEdits()) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (totalEdits()) showDiff(); } });
+</script>
+<script src="trial.js"></script>
+</body>
+</html>

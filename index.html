@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>マイコンカーの道具</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --sub: #5d6676; --line: #dde1e8; --accent: #2f6fd6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --sub: #9aa3b2; --line: #2e343e; --accent: #6ea2f5; }
+}
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.6 system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 40px 16px; }
+h1 { font-size: 22px; margin: 0 0 6px; }
+p.lead { color: var(--sub); margin: 0 0 28px; }
+.tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+a.tool { display: block; padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  color: inherit; text-decoration: none; }
+a.tool:hover, a.tool:focus-visible { border-color: var(--accent); outline: none; }
+a.tool h2 { font-size: 18px; margin: 0 0 6px; color: var(--accent); }
+a.tool p { margin: 0; color: var(--sub); font-size: 14px; }
+footer { margin-top: 32px; color: var(--sub); font-size: 13px; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>マイコンカーの道具</h1>
+  <p class="lead">使う道具を選んでください。</p>
+  <div class="tools">
+    <a class="tool" href="config/">
+      <h2>パラメータ編集（config）</h2>
+      <p>config.h・tables.h・dbg_config.h の値を画面で変えます。走行ログの診断とタイム比較もここで行います。</p>
+    </a>
+    <a class="tool" href="simulator/">
+      <h2>シミュレータ（simulator）</h2>
+      <p>basic/ の走行プログラムを、計算で作ったコースで走らせます。中のプログラムは main の basic/ が変わると自動で最新になります。</p>
+    </a>
+  </div>
+  <footer>リポジトリ: <a href="https://github.com/ao81/mcr2026">ao81/mcr2026</a></footer>
+</main>
+</body>
+</html>
