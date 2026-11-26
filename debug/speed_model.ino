@@ -55,6 +55,14 @@ void speed_model_update(void) {
     const float dt = 0.001f;
     servo_model_update();
     float power = (log_raw.ml + log_raw.mr) * 0.5f;          // DIPスイッチで縮小した後の出力
+    // 同じ出力をどれだけ続けているか（USE_NEW_VMAX_LEARN で、ラインで測った速さから v_max_mps を直接求めるのに使う）。
+    // 直線でもハンドルの左右に合わせて内輪の出力が少し変わるので、VMAX_STEADY_TOL 以内の変化は同じ出力とみる
+    if (fabsf(power - steady_power) <= VMAX_STEADY_TOL) {
+        if (steady_ms < 100000UL) steady_ms++;
+    } else {
+        steady_power = power;
+        steady_ms = 0;
+    }
     float target = power / 100.0f * v_max_mps;
     float v = speed_mps;
     float a = (target - v) / MOTOR_TAU_S;
@@ -76,22 +84,9 @@ void speed_model_update(void) {
         car_k_eff = k / q;
     }
 #endif
-    const float a_free = a;
     float a_up = accel_up_limit(v, fabsf(k));
     if (a > a_up) a = a_up;                                   // タイヤがすべるほどの加速はできない
     if (a < -GRIP_LONG_USE) a = -GRIP_LONG_USE;               // ブレーキは余裕をみた値（遅めに減速すると考える）
-#if USE_NEW_VMAX_LEARN
-    // 推定の速さが v_max_mps にどれだけ左右されているか（感度）と、それ以外の誤差を進める（config.h の説明）
-    if (a == a_free) {
-        vmax_sens += (power / 100.0f - vmax_sens) * dt / MOTOR_TAU_S;
-    } else {
-        speed_err_sd += SPEED_GRIP_ERR * fabsf(a) * dt;      // グリップで頭打ち：v_max には左右されないが、グリップの誤差が積もる
-    }
-    {
-        const float d = VMAX_DRIFT_SD * v_max_mps;
-        vmax_var += d * d * dt;
-    }
-#endif
     v = v + a * dt;
     if (!finite_f(v)) v = 0.0f;                               // config.h の値がおかしいときに、計算が壊れたままにならないように
     speed_mps = v;
@@ -107,13 +102,35 @@ void speed_measure_by_line(float width_m, int pass_ms) {
     float t = (pass_ms + LINE_PASS_OFFSET_MS) * 0.001f;
     if (t <= 0.0f) return;
     float v_meas = width_m / t;
+#if USE_NEW_VMAX_LEARN
+    // 同じ出力を VMAX_STEADY_MS 以上出し続けた後なら（スタートから全開で最初のラインまで など）、
+    // 推定の速さも本当の速さも、同じ時定数で「出力 × 出力100%の速さ」に近づいているので、
+    // 「測った速さ ÷ 推定の速さ」がそのまま「本当の v_max ÷ 設定の v_max」になる。
+    // そこで V_MAX_MPS が大きくずれていても（3.0 と 1.8 など）、ここで1回で直す（±VMAX_LEARN_RANGE の制限は使わない）。
+    // 直した値を、以後の小さな直し（下のカルマンフィルタ）の範囲の中心にする
+    // 線の幅が1つに決まらない（スタート位置が分からず一番広い幅で代えている）ときは、測った速さが速めに出るので使わない
+    if (line_w_exact && steady_ms >= VMAX_STEADY_MS && steady_power >= 30.0f && speed_mps > 0.3f) {
+        float vm = v_max_mps * (v_meas / speed_mps);
+        float lo = V_MAX_MPS * VMAX_STEADY_MIN_RATIO;
+        float hi = V_MAX_MPS * VMAX_STEADY_MAX_RATIO;
+        if (vm >= lo && vm <= hi) {
+            float rq = 0.41f / (pass_ms + LINE_PASS_OFFSET_MS);
+            v_max_mps = vm;
+            vmax_base = vm;
+            vmax_var = rq * rq + LINE_WIDTH_SD * LINE_WIDTH_SD;   // 残る誤差は測定の誤差だけ
+            speed_mps = v_meas;
+            model_bad_cnt = 0;
+            return;
+        }
+    }
+#endif
     // 測った速さが推定と大きく違う（0.6倍より小さい、1.67倍より大きい）ときは、斜めに横切った・線を見落とした などの
     // 測り間違いか、config.h の車の値が実際と大きく違うかのどちらか。どちらか分からないので、速い方の値を使う
     // （速めに見ておけば、ブレーキが遅れることはない）。2回続けて大きく違ったら、推定は当てにならないとして
     // 元の表の動きに戻す（model_ok = 0。この走行の間は戻さない）
     if (speed_mps > 0.3f) {
         float q = v_meas / speed_mps;
-        if ((q < 0.6f || q > 1.67f) && !vmax_plausible(v_meas, t)) {
+        if (q < 0.6f || q > 1.67f) {
             model_bad_cnt++;
             if (model_bad_cnt >= 2) model_ok = 0;
             if (speed_mps > v_meas) v_meas = speed_mps;
@@ -138,96 +155,38 @@ void speed_measure_by_line(float width_m, int pass_ms) {
         v_meas = speed_mps < low ? fminf(v_meas, limit) : fmaxf(v_meas, limit);
     }
 #endif
-#if USE_NEW_VMAX_LEARN
-    // 線の幅が1つに決まっているときは、測った速さで v_max_mps と速さを両方直す（vmax_observe）
-    // 線の幅が1つに決まらないとき（一番広い幅で代えている）は、測った速さが速めに出るので、v_max は直さず速さだけ混ぜる
-    // （v_max を直すと、その後ずっと出力を少なめに出して、思ったより遅く走り、曲がり始めの位置もずれる。模擬の crank2 で確認）
-    {
-        float rq = 0.41f / (pass_ms + LINE_PASS_OFFSET_MS);
-        float r_rel = sqrtf(rq * rq + LINE_WIDTH_SD * LINE_WIDTH_SD);
-        if (line_w_exact) {
-            vmax_observe(v_meas, r_rel);
-            return;
-        }
-        float pv = vmax_sens * vmax_sens * vmax_var + speed_err_sd * speed_err_sd;
-        float r = (r_rel * v_meas) * (r_rel * v_meas);
-        float k = (pv + r > 0.0f) ? pv / (pv + r) : 1.0f;
-        speed_mps = speed_mps + k * (v_meas - speed_mps);
-        vmax_sens *= (1.0f - k);
-        speed_err_sd = sqrtf((1.0f - k) * (1.0f - k) * speed_err_sd * speed_err_sd + k * k * r);
-        return;
-    }
-#else
-    // 推定（モデル）と測定のどちらにも誤差があるので、2つを誤差の大きさに応じて混ぜる（カルマンフィルタ）
+    // 推定（モデル）と測定のどちらにも誤差があるので、2つを誤差の大きさに応じて混ぜる（カルマンフィルタ）。
+    // モデルの速さの誤差は、ほとんどが出力100%の速さ v_max_mps の誤差 P から来る（速さは v_max_mps に比例する）。
+    // 測定の誤差 R は、1ms 単位で測ることと、ラインの幅の誤差から来る（config.h の説明を参照）
     //   K = P ÷ (P + R)、新しい速さ = 推定 × (1 + K × (測定 ÷ 推定 − 1))
     float v_new = v_meas;
     if (speed_mps > 0.5f) {
         float ratio = v_meas / speed_mps;
         float rq = 0.41f / (pass_ms + LINE_PASS_OFFSET_MS);
         float r = rq * rq + LINE_WIDTH_SD * LINE_WIDTH_SD;
-        float k = 0.01f / (0.01f + r);
-        v_new = speed_mps * (1.0f + k * (ratio - 1.0f));
+        float k = vmax_var / (vmax_var + r);
+        float f = 1.0f + k * (ratio - 1.0f);
+        v_new = speed_mps * f;
+#if USE_NEW_VMAX_LEARN
+        // 線の幅が1つに決まらないとき（一番広い幅で代えている）は、測った速さが速めに出るので、v_max は直さない
+        // （直すと、その後ずっと出力を少なめに出して、思ったより遅く走り、曲がり始めの位置もずれる。模擬の crank2 で確認）
+        if (line_w_exact) {
+            // 推定していた速さが測った速さより速いなら、出力100%の速さを実際より大きく見ていたことになる。
+            // 速さと同じ割合で v_max_mps も直し、その誤差 P を (1 − K) 倍に縮める（次からは測定を信じる割合が下がる）
+            if (k < VMAX_LEARN_MIN_GAIN) {
+                k = VMAX_LEARN_MIN_GAIN;
+                f = 1.0f + k * (ratio - 1.0f);
+                v_new = speed_mps * f;
+            }
+            vmax_var = (1.0f - k) * vmax_var;
+            float vm = v_max_mps * f;
+            float lo = vmax_base * (1.0f - VMAX_LEARN_RANGE);
+            float hi = vmax_base * (1.0f + VMAX_LEARN_RANGE);
+            v_max_mps = vm < lo ? lo : (vm > hi ? hi : vm);
+        }
+#endif
     }
     speed_mps = v_new;
-#endif
-}
-
-//**********************************************************************
-// 測った速さが、v_max_mps の誤差で説明できる範囲か（3σ 以内）。
-//   V_MAX_MPS が大きくずれているうちは、推定と大きく違っても測り間違いとはみなさない
-//**********************************************************************
-int vmax_plausible(float v_meas, float t) {
-#if USE_NEW_VMAX_LEARN
-    float rq = 0.00041f / t;
-    float r_rel2 = rq * rq + LINE_WIDTH_SD * LINE_WIDTH_SD;
-    float s2 = vmax_sens * vmax_sens * vmax_var + speed_err_sd * speed_err_sd + r_rel2 * v_meas * v_meas;
-    float e = v_meas - speed_mps;
-    return e * e <= 9.0f * s2;
-#else
-    (void)v_meas; (void)t;
-    return 0;
-#endif
-}
-
-//**********************************************************************
-// 測った速さ v_meas（誤差の大きさは v_meas の r_rel 倍）で、v_max_mps と速さ speed_mps を直す（USE_NEW_VMAX_LEARN）
-//   推定の速さの誤差 = 感度 s × v_max の誤差 ＋ それ以外の誤差（大きさ speed_err_sd）と考えて、
-//   速さと v_max の2つを一緒に直す（カルマンフィルタ）。
-//   スタートから全開（s ≒ 1）なら、測った速さとの差はほぼそのまま v_max の誤差になる。
-//   ブレーキの後に p% で一定の速さを保っている（s ≒ p/100）なら、差の 100/p 倍が v_max の誤差になる
-//**********************************************************************
-void vmax_observe(float v_meas, float r_rel) {
-#if USE_NEW_VMAX_LEARN
-    const float s = vmax_sens;
-    const float P = vmax_var;
-    const float Vi = speed_err_sd * speed_err_sd;
-    const float R = (r_rel * v_meas) * (r_rel * v_meas);
-    const float pvv = s * s * P + Vi;                 // 推定の速さの誤差の2乗
-    const float pvm = s * P;                          // 速さと v_max の誤差の関係
-    const float S = pvv + R;
-    if (!(S > 0.0f)) { speed_mps = v_meas; return; }
-    const float e = v_meas - speed_mps;
-    const float kv = pvv / S;
-    const float km = pvm / S;
-    float vm = v_max_mps + km * e;
-    const float lo = V_MAX_MPS * VMAX_MIN_RATIO;
-    const float hi = V_MAX_MPS * VMAX_MAX_RATIO;
-    if (vm < lo) vm = lo;
-    if (vm > hi) vm = hi;
-    v_max_mps = vm;
-    speed_mps = speed_mps + kv * e;
-    // 直した後の誤差（2×2 の共分散を更新し、感度とそれ以外の誤差に分け直す）
-    const float P2 = P - pvm * pvm / S;
-    const float pvv2 = pvv - pvv * pvv / S;
-    const float pvm2 = pvm - pvv * pvm / S;
-    vmax_var = P2 > 1.0e-8f ? P2 : 1.0e-8f;
-    vmax_sens = pvm2 / vmax_var;
-    float vi2 = pvv2 - vmax_sens * vmax_sens * vmax_var;
-    speed_err_sd = vi2 > 0.0f ? sqrtf(vi2) : 0.0f;
-#else
-    speed_mps = v_meas;
-    (void)r_rel;
-#endif
 }
 
 // ハーフライン退出後の積算距離を、中央線の切れ目で一度だけ照合する。
@@ -243,7 +202,8 @@ void correct_lane_speed_by_distance(void) {
 
     speed_mps *= ratio;
 #if USE_NEW_VMAX_LEARN
-    v_max_mps = fminf(V_MAX_MPS * VMAX_MAX_RATIO, fmaxf(V_MAX_MPS * VMAX_MIN_RATIO, v_max_mps * ratio));
+    v_max_mps = fminf(vmax_base * (1.0f + VMAX_LEARN_RANGE),
+                      fmaxf(vmax_base * (1.0f - VMAX_LEARN_RANGE), v_max_mps * ratio));
 #endif
 }
 
@@ -400,48 +360,6 @@ void lane_spot_done(void) {
     spot_cand = spot_pend;
     spot_pend = 0;
     spot_no = (spot_no + 1) % SPOT_N;              // 表の最後の次は最初の行（1周）
-}
-
-//**********************************************************************
-// USE_NEW_CRANK_ANY_COURSE でクロスラインを通過し終えた時に呼ぶ（USE_NEW_VMAX_LEARN）
-//   クロスラインの幅は1つに決まらないが、あり得る幅の範囲（COURSE_LIST の候補、無ければ規則の 20〜40mm）の
-//   どれかとして、推定の速さがあり得ない（範囲の外）ときだけ v_max_mps を直す（V_MAX_MPS が大きくずれているときに効く）
-//**********************************************************************
-void cross_line_vmax_observe(int pass_ms) {
-#if USE_NEW_VMAX_LEARN
-    float w_lo = CROSS_LINE_RULE_MIN_M, w_hi = CROSS_LINE_RULE_MAX_M;
-    if (COURSE_LIST_USE && spot_ok && spot_cand) {
-        float lo = 1.0e6f, hi = 0.0f;
-        for (int i = 0; i < START_N; i++) {
-            if (!(spot_cand & (1u << i))) continue;
-            const CourseSpot& c = COURSE_LIST[spot_row(i)];
-            if (c.kind != 'C') continue;
-            if (c.line_w_m < lo) lo = c.line_w_m;
-            if (c.line_w_m > hi) hi = c.line_w_m;
-        }
-        if (hi > 0.0f) { w_lo = lo; w_hi = hi; }
-    }
-    w_lo += LINE_SEEN_EXTRA_M;
-    w_hi += LINE_SEEN_EXTRA_M;
-    float t = (pass_ms + LINE_PASS_OFFSET_MS) * 0.001f;
-    if (!(t > 0.0f) || speed_mps < 0.3f) return;
-    // 本当の速さは「一番狭い幅 ÷ 時間」から「一番広い幅 ÷ 時間」の間のどこか（その中ならどれも同じくらいあり得る）。
-    // 推定の速さがこの間に入っていれば、この測定からは何も分からないので直さない。
-    // 外れていたら、範囲の真ん中の幅で求めた速さを、範囲の広さの分の誤差がある測定として使って直す（V_MAX_MPS が大きくずれているときだけ働く）
-    float rq = 0.41f / (pass_ms + LINE_PASS_OFFSET_MS);
-    float v_lo = w_lo / t * (1.0f - rq);
-    float v_hi = w_hi / t * (1.0f + rq);
-    float v_meas = 0.5f * (w_lo + w_hi) / t;                 // 範囲の真ん中の幅で求めた速さ
-    float rw = (w_hi - w_lo) / (w_hi + w_lo) / 1.7320508f;   // 範囲の中のどれか（一様）とみたときの誤差の大きさ
-    float r_rel = sqrtf(rq * rq + rw * rw + LINE_WIDTH_SD * LINE_WIDTH_SD);
-    // 推定と比べて大きく違いすぎるとき（3σ より外）は、斜めに横切った・見落とした などとみて使わない
-    float e = v_meas - speed_mps;
-    float s2 = vmax_sens * vmax_sens * vmax_var + speed_err_sd * speed_err_sd + (r_rel * v_meas) * (r_rel * v_meas);
-    if (e * e > 9.0f * s2) return;
-    vmax_observe(v_meas, r_rel);
-#else
-    (void)pass_ms;
-#endif
 }
 
 // 距離を0に戻す（ラインを通過し終わった時などに呼ぶ）。ブレーキの状態も最初に戻す

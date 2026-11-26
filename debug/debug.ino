@@ -232,9 +232,6 @@ float curvature_of_angle(float angle);
 float accel_up_limit(float v, float k_abs);
 void speed_model_update(void);
 void speed_measure_by_line(float width_m, int pass_ms);
-void vmax_observe(float v_meas, float r_rel);
-int vmax_plausible(float v_meas, float t);
-void cross_line_vmax_observe(int pass_ms);
 void reset_distance(void);
 void correct_lane_speed_by_distance(void);
 float braking_distance(float v, float v_target, int brake_power);
@@ -291,9 +288,10 @@ volatile int line_pass_ms;             // ラインの通過時間[ms]（元: ky
 volatile int f_setup_end;              // setup が終わったら 1
 volatile float speed_mps;              // 推定した車の速さ [m/s]（speed_model.ino）
 volatile float v_max_mps;              // 出力100%のときの速さ [m/s]。初めは V_MAX_MPS、USE_NEW_VMAX_LEARN で走りながら直す
-float vmax_var;                        // v_max_mps の誤差の大きさの2乗 [(m/s)²]（USE_NEW_VMAX_LEARN）
-float vmax_sens;                       // 推定の速さが v_max_mps にどれだけ左右されているか（感度 ∂v/∂v_max。USE_NEW_VMAX_LEARN）
-float speed_err_sd;                    // 推定の速さの、v_max_mps と関係のない誤差の大きさ [m/s]（USE_NEW_VMAX_LEARN）
+float vmax_var;                        // v_max_mps の当てにならなさ（相対誤差の2乗。USE_NEW_VMAX_LEARN）
+float vmax_base;                       // v_max_mps を直してよい範囲の中心。初めは V_MAX_MPS、出力一定のまま測れたらその値（USE_NEW_VMAX_LEARN）
+float steady_power;                    // 同じ出力を出し続けているときの、その出力（speed_model.ino）
+volatile unsigned long steady_ms;      // 同じ出力を出し続けている時間 [ms]（speed_model.ino）
 volatile float dist_m;                 // ラインの終わりからの走行距離 [m]（speed_model.ino）
 volatile int brake_started;            // 1: 計算による減速でブレーキを始めた（speed_model.ino）
 float crank_entry_mps;                 // クランクに入る速さ [m/s]（planner.ino の plan_setup で決める）
@@ -411,9 +409,10 @@ void setup() {
     line_pass_state = PASS_WAIT;
     line_pass_ms = 0;
     v_max_mps = V_MAX_MPS;  // 出力100%のときの速さ（speed_model.ino）
-    vmax_var = (VMAX_LEARN_SD * V_MAX_MPS) * (VMAX_LEARN_SD * V_MAX_MPS);
-    vmax_sens = 0.0f;
-    speed_err_sd = 0.0f;
+    vmax_var = VMAX_LEARN_SD * VMAX_LEARN_SD;
+    vmax_base = V_MAX_MPS;
+    steady_power = 0.0f;
+    steady_ms = 0;
 
     // AGT 1msごとの割り込み  PCLKB=24MHz, 1分周 → 24000カウントで1ms（設定値は1小さい23999）
     fsp_timer.begin(TIMER_MODE_PERIODIC, AGT_TIMER, 1, 23999, 1, (timer_source_div_t)TIMER_SOURCE_DIV_1, AGTCallback);
