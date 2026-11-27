@@ -41,6 +41,15 @@
   .seg button.on { background: var(--accent); color: #fff; }
   .seg button kbd { font: 10px ui-monospace, monospace; opacity: .6; margin-left: 3px; }
   #buildInfo { margin-left: auto; color: var(--sub); font-size: 11px; }
+  #localBtn { font-size: 12px; padding: 3px 9px; }
+  #localBar { display: none; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0 10px 8px; padding: 5px 10px; border-radius: 6px; background: #2f6fd6; color: #fff; font-size: 12px; }
+  #localBar.err { background: #b3261e; }
+  #localBar button { font-size: 12px; padding: 2px 8px; }
+  #localBar details { flex-basis: 100%; }
+  #localBar pre { white-space: pre-wrap; max-height: 40vh; overflow: auto; margin: 4px 0 0; background: #0006; padding: 6px; }
+  #localDlg { max-width: 560px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font-size: 13px; }
+  #localDlg button.big { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 8px 10px; }
+  #localDlg code { font: 12px ui-monospace, monospace; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
 
   /* ---------- 3列 ---------- */
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: 390px minmax(0, 1fr) 290px; gap: 10px; padding: 0 10px 10px; }
@@ -130,7 +139,17 @@
   <h1>マイコンカー模擬</h1>
   <div class="seg" id="courseSeg"></div>
   <span id="buildInfo"></span>
+  <button id="localBtn" title="GitHub の版の代わりに、手元の ~/mcr2026 のファイルを使う">手元のファイル</button>
 </header>
+<div id="localBar"><span id="localMsg"></span><button id="localReload">読み直す</button><button id="localOff">GitHub の版に戻す</button><details id="localDet" hidden><summary>理由を見る</summary><pre id="localErr"></pre></details></div>
+<dialog id="localDlg">
+  <h3 style="margin:0 0 6px">手元のファイルを使う</h3>
+  <p style="margin:0 0 4px">GitHub の版の代わりに、手元の mcr2026 のファイルで模擬します。選んだものはこのブラウザに覚え、次に開いた時も使います。</p>
+  <button class="big" id="useServer"><b>手元のサーバから読む（プログラムと値）</b><br>WSL で <code>cd ~/mcr2026 && python3 tools/local_site.py</code> を実行してから押してください。手元の basic/ の走行プログラムと config.h の値で作り直したものを使います。basic/ を変えたらページを再読み込みすると作り直します。ブラウザに「この端末の他のアプリへのアクセス」の確認が出たら許可してください。</button>
+  <button class="big" id="useDir"><b>フォルダを選ぶ（値だけ）</b><br>mcr2026 のフォルダ（\\wsl.localhost\Ubuntu\home\ao\mcr2026）を選ぶと、basic/config.h の値を初期値にします。走行プログラムは GitHub の版のままです。Chrome・Edge（Brave は brave://flags/#file-system-access-api を有効に）で使えます。</button>
+  <p id="localDlgMsg" style="color:#d33;margin:4px 0"></p>
+  <div style="text-align:right"><button id="localCancel">閉じる</button></div>
+</dialog>
 <main>
   <div class="card" id="settings">
     <div class="tabs">
@@ -191,11 +210,24 @@ const BUILD = {"built": "2026-11-27", "rev": "f17bc6f 2026-11-27"};
 </script>
 <script>
 "use strict";
+// ================= 手元のファイルを使う（tools/local_site.py のサーバ、またはフォルダの config.h） =================
+// localStorage の mcr-sim-local に、前に読んだものを入れておき、ページを開いた時はそれを使う（読むのは非同期なので）。
+// その後で読み直し、変わっていれば入れ替えてページを開き直す。
+const LOCAL_KEY = "mcr-sim-local", LOCAL_URL = "http://127.0.0.1:8770";
+let LOCAL = null;
+try { LOCAL = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"); } catch (e) { }
+const SRC = { wasm: WASM_B64, items: CFG_ITEMS, build: BUILD };  // 使う版（下で手元の版に入れ替える）
+if (LOCAL && LOCAL.mode === "server" && LOCAL.wasm && LOCAL.items) {
+  SRC.wasm = LOCAL.wasm; SRC.items = LOCAL.items; SRC.build = LOCAL.build;
+} else if (LOCAL && LOCAL.mode === "dir" && LOCAL.defs) {
+  SRC.items = CFG_ITEMS.map(it => (it.name in LOCAL.defs) ? Object.assign({}, it, { def: LOCAL.defs[it.name] }) : it);
+}
+
 // ================= 模擬のプログラム（WebAssembly）を動かす =================
 class ExitSignal { constructor(code) { this.code = code; } }
 let MOD = null;
 async function loadModule() {
-  const bin = Uint8Array.from(atob(WASM_B64), c => c.charCodeAt(0));
+  const bin = Uint8Array.from(atob(SRC.wasm), c => c.charCodeAt(0));
   MOD = await WebAssembly.compile(bin);
 }
 // cfg: CFG_ITEMS と同じ並びの数値、args: course_sim に渡す引数。戻り値は出力の文字列
@@ -249,7 +281,7 @@ function parseOutput(text) {
 }
 
 // ================= 設定 =================
-const ITEMS = CFG_ITEMS.map((it, i) => Object.assign({ i }, it));
+const ITEMS = SRC.items.map((it, i) => Object.assign({ i }, it));
 const BY_NAME = Object.fromEntries(ITEMS.map(it => [it.name, it]));
 const SWITCHES = ITEMS.filter(it => it.kind === "switch");
 const GLOBAL_CFG = ["AUTO_STOP_MS"];   // 走りごとではなく、「コースと車」でまとめて変える値
@@ -824,7 +856,112 @@ $("addRun").onclick = () => addRun();
 $("avg7").onclick = average7;
 $("resetAll").onclick = () => { S = defaultState(); buildAll(); changed(); };
 
-$("buildInfo").textContent = `中の走行プログラム: basic/ のコミット ${BUILD.rev}（このファイルは ${BUILD.built} に作成）`;
+$("buildInfo").textContent = `中の走行プログラム: basic/ のコミット ${SRC.build.rev}（このファイルは ${SRC.build.built} に作成）`;
+
+// ---------- 手元のファイル ----------
+function saveLocal(v) {
+  try { if (v) localStorage.setItem(LOCAL_KEY, JSON.stringify(v)); else localStorage.removeItem(LOCAL_KEY); return true; }
+  catch (e) { alert("ブラウザに保存できませんでした: " + e); return false; }
+}
+function localBar(msg, err, detail) {
+  $("localBar").style.display = "flex";
+  $("localBar").classList.toggle("err", !!err);
+  $("localMsg").textContent = msg;
+  $("localDet").hidden = !detail; $("localErr").textContent = detail || "";
+}
+async function fetchServer(have) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 600000);
+  try {
+    const r = await fetch(LOCAL_URL + "/api/sim?have=" + encodeURIComponent(have || ""), { cache: "no-store", signal: ctl.signal, targetAddressSpace: "loopback" });
+    const j = await r.json();
+    if (!r.ok) throw Object.assign(new Error(j.error || ("HTTP " + r.status)), { detail: j.detail });
+    return j;
+  } finally { clearTimeout(t); }
+}
+const NO_SERVER = "手元のサーバにつながりません。WSL で cd ~/mcr2026 && python3 tools/local_site.py を実行しているか確かめてください（ブラウザが手元へのアクセスを止めている場合もあります）。";
+async function serverCheck(first) {
+  localBar("手元のサーバに確かめています（basic/ が変わっていれば作り直すので、数十秒かかることがあります）…");
+  let j;
+  try { j = await fetchServer(first ? "" : LOCAL.hash); }
+  catch (e) {
+    if (first) throw e;
+    const net = e.name === "AbortError" || e instanceof TypeError;
+    localBar((net ? NO_SERVER : "手元のサーバで走行プログラムを作れませんでした。") + "前に読んだ手元の版（" + SRC.build.built + " に作成）を使っています。", true, e.detail || (net ? "" : e.message));
+    return;
+  }
+  if (j.same) { localBar("手元のサーバの版です：手元の basic/ の走行プログラムと config.h の値（" + SRC.build.built + " に作成）。basic/ を変えたら、このページを再読み込みしてください。"); return; }
+  if (saveLocal({ mode: "server", hash: j.hash, wasm: j.wasm, items: j.items, build: j.build })) location.reload();
+}
+function parseConfig(text) {
+  const defs = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^#define\s+([A-Z0-9_]+)\s+\(?\s*(-?[0-9]+(?:\.[0-9]*)?)f?\s*\)?(\s|\/\/|$)/);
+    if (m && m[1] in BY_NAME && m[1] !== "COURSE_LIST_USE") defs[m[1]] = +m[2];
+  }
+  return defs;
+}
+function idb(fn) {
+  return new Promise((ok, ng) => {
+    const rq = indexedDB.open("mcr-sim", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("h");
+    rq.onerror = () => ng(rq.error);
+    rq.onsuccess = () => { const tx = rq.result.transaction("h", "readwrite"); const q = fn(tx.objectStore("h")); tx.oncomplete = () => ok(q && q.result); tx.onerror = () => ng(tx.error); };
+  });
+}
+async function readDir(dir) {
+  const b = await dir.getDirectoryHandle("basic").catch(() => { throw new Error("選んだフォルダに basic/ がありません。mcr2026 のフォルダを選んでください。"); });
+  const text = await (await (await b.getFileHandle("config.h")).getFile()).text();
+  return parseConfig(text);
+}
+function sameDefs(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function dirMsg() {
+  const n = SRC.items.filter((it, i) => it.def !== CFG_ITEMS[i].def).length;
+  localBar(`フォルダ「${LOCAL.name}」の basic/config.h の値を初期値にしています（GitHub の版と違う値 ${n} 個）。走行プログラムは GitHub の版（basic/ のコミット ${BUILD.rev}）です。`);
+}
+async function dirCheck(gesture) {
+  let dir = null;
+  try { dir = await idb(st => st.get("dir")); } catch (e) { }
+  if (!dir) { dirMsg(); return; }
+  let perm = await dir.queryPermission({ mode: "read" });
+  if (perm !== "granted" && gesture) perm = await dir.requestPermission({ mode: "read" });
+  if (perm !== "granted") { dirMsg(); $("localMsg").textContent += " config.h を変えたら「読み直す」を押してください。"; return; }
+  const defs = await readDir(dir);
+  if (sameDefs(defs, LOCAL.defs)) { dirMsg(); return; }
+  if (saveLocal({ mode: "dir", name: dir.name, defs })) location.reload();
+}
+$("localBtn").onclick = () => { $("localDlgMsg").textContent = ""; $("localDlg").showModal(); };
+$("localCancel").onclick = () => $("localDlg").close();
+$("useServer").onclick = async () => {
+  $("localDlgMsg").textContent = "手元のサーバから読んでいます（初めは作るのに数十秒かかることがあります）…";
+  try {
+    const j = await fetchServer("");
+    if (saveLocal({ mode: "server", hash: j.hash, wasm: j.wasm, items: j.items, build: j.build })) location.reload();
+  } catch (e) {
+    const net = e.name === "AbortError" || e instanceof TypeError;
+    $("localDlgMsg").textContent = net ? NO_SERVER : "手元のサーバで走行プログラムを作れませんでした: " + e.message + (e.detail ? "\n" + e.detail.slice(-1500) : "");
+  }
+};
+$("useDir").onclick = async () => {
+  if (!window.showDirectoryPicker) { $("localDlgMsg").textContent = "このブラウザはフォルダを選べません。Chrome か Edge を使ってください（Brave は brave://flags/#file-system-access-api を有効に）。"; return; }
+  try {
+    const dir = await showDirectoryPicker({ id: "mcr2026", mode: "read" });
+    const defs = await readDir(dir);
+    await idb(st => st.put(dir, "dir")).catch(() => { });
+    if (saveLocal({ mode: "dir", name: dir.name, defs })) location.reload();
+  } catch (e) { if (e.name !== "AbortError") $("localDlgMsg").textContent = e.message; }
+};
+$("localOff").onclick = () => { saveLocal(null); location.reload(); };
+$("localReload").onclick = () => {
+  if (!LOCAL) return;
+  if (LOCAL.mode === "server") serverCheck(false); else dirCheck(true).catch(e => localBar(e.message, true));
+};
+if (SRC.wasm === LOCAL?.wasm) {
+  $("buildInfo").textContent = `中の走行プログラム: 手元の basic/（${SRC.build.rev}、${SRC.build.built} に作成）`;
+  serverCheck(false);
+} else if (LOCAL && LOCAL.mode === "dir") {
+  $("buildInfo").textContent += "・値は手元の config.h";
+  dirCheck(false).catch(e => localBar(e.message, true));
+}
 buildAll(); resize();
 loadModule().then(simulateAll).catch(e => setStatus("模擬のプログラムを読み込めませんでした: " + e));
 </script>
