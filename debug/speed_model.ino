@@ -49,6 +49,19 @@ float accel_up_limit(float v, float k_abs) {
 }
 
 //**********************************************************************
+// クロスラインの後（pattern 100〜103）で、CRANK_BRAKE_DECEL_MPS2 を使うときか
+//**********************************************************************
+static bool crank_brake_decel_on(void) {
+    return CRANK_BRAKE_DECEL_MPS2 > 0.0f && pattern >= PT_CROSS_FOUND && pattern <= PT_CRANK_SEARCH;
+}
+
+// ブレーキの減速度 [m/s²]。クロスラインの後は実車に合わせた CRANK_BRAKE_DECEL_MPS2、それ以外は GRIP_LONG_USE
+//   2026-11-27 CRK0050：5.4 m/s² と見ていたため、推定が目標の速さに下がるまでブレーキを続けている間に、実車は止まってバックした
+float brake_decel_mps2(void) {
+    return crank_brake_decel_on() ? CRANK_BRAKE_DECEL_MPS2 : GRIP_LONG_USE;
+}
+
+//**********************************************************************
 // 1msごとに呼ぶ：最後に出したモータ出力から速さと距離を更新
 //**********************************************************************
 void speed_model_update(void) {
@@ -66,6 +79,13 @@ void speed_model_update(void) {
     float target = speed_of_power(power);
     float v = speed_mps;
     float a = (target - v) / MOTOR_TAU_S;
+    const bool crank_zone = crank_brake_decel_on();
+    // クロスラインの後、全開で走っている間は推定の速さを下げない。
+    // 実車の全開の速さ（約 2.5 m/s）は V_MAX_MPS（1.8）より速いので、クロスラインで測った速さ（約 2.4）は、
+    // そのままでは 1.8 に向かって下がっていき、実際より遅く見て、ブレーキが遅れる（全開で遅くなることはない）
+    if (crank_zone && power >= 99.0f && a < 0.0f) a = 0.0f;
+    // 逆転のブレーキの減速度：クロスラインの後は CRANK_BRAKE_DECEL_MPS2（実車に合わせた値）
+    const float g_dn = (crank_zone && power < 0.0f) ? CRANK_BRAKE_DECEL_MPS2 : GRIP_LONG_USE;
     float k = curvature_of_angle(log_raw.ang);
     car_k_eff = k;
 #if USE_NEW_CURVE_PREVIEW
@@ -74,9 +94,10 @@ void speed_model_update(void) {
     // （曲がりきれずに外へふくらみ、ブレーキも弱くなる）。縮めた曲率は、線の形の推定で「車が本当に曲がった分」に使う
     k = curvature_of_angle(servo_est_deg);
     if (a > GRIP_LONG_MPS2) a = GRIP_LONG_MPS2;
-    if (a < -GRIP_LONG_MPS2) a = -GRIP_LONG_MPS2;
+    const float g_dn_grip = (g_dn > GRIP_LONG_MPS2) ? g_dn : GRIP_LONG_MPS2;
+    if (a < -g_dn_grip) a = -g_dn_grip;
     float q_lat = v * v * k / GRIP_LAT_MPS2;
-    float q_long = a / GRIP_LONG_MPS2;
+    float q_long = a / (a < 0.0f ? g_dn_grip : GRIP_LONG_MPS2);
     float q = sqrtf(q_lat * q_lat + q_long * q_long);
     car_k_eff = k;
     if (q > 1.0f) {
@@ -86,7 +107,7 @@ void speed_model_update(void) {
 #endif
     float a_up = accel_up_limit(v, fabsf(k));
     if (a > a_up) a = a_up;                                   // タイヤがすべるほどの加速はできない
-    if (a < -GRIP_LONG_USE) a = -GRIP_LONG_USE;               // ブレーキは余裕をみた値（遅めに減速すると考える）
+    if (a < -g_dn) a = -g_dn;                                 // ブレーキは余裕をみた値（遅めに減速すると考える）。クロスラインの後は実車に合わせた値
     v = v + a * dt;
     if (v < 0.0f && power >= 0.0f) v = 0.0f;                  // 摩擦で止まる（前へ出力していて後ろへは進まない）
     if (!finite_f(v)) v = 0.0f;                               // config.h の値がおかしいときに、計算が壊れたままにならないように
@@ -103,6 +124,9 @@ void speed_measure_by_line(float width_m, int pass_ms) {
     float t = (pass_ms + LINE_PASS_OFFSET_MS) * 0.001f;
     if (t <= 0.0f) return;
     float v_meas = width_m / t;
+    // 実車が出せない速さは測り間違い（斜めに通って通過時間が短く出た など）。上限で抑える（CRK0050：8ms で 4.44 m/s と出た）
+    // クロスラインだけ。レーンチェンジ（ハーフライン）はうまく走れているので変えない
+    if (SPEED_MEAS_MAX_MPS > 0.0f && pattern == PT_CROSS_PASS && v_meas > SPEED_MEAS_MAX_MPS) v_meas = SPEED_MEAS_MAX_MPS;
 #if USE_NEW_VMAX_LEARN
     // 同じ出力を VMAX_STEADY_MS 以上出し続けた後なら（スタートから全開で最初のラインまで など）、
     // 推定の速さも本当の速さも、同じ時定数で「出力 × 出力100%の速さ」に近づいているので、
@@ -382,10 +406,11 @@ float braking_distance(float v, float v_target, int brake_power) {
     float vb = speed_of_power((float)brake_power);
     if (vb >= v_target) return 1.0e6f;                // このブレーキでは目標の速さまで落ちない
     float s = 0.0f;
-    float v1 = vb + MOTOR_TAU_S * GRIP_LONG_USE;      // これより速いと減速度はグリップで決まる
+    const float g = brake_decel_mps2();               // クロスラインの後は CRANK_BRAKE_DECEL_MPS2
+    float v1 = vb + MOTOR_TAU_S * g;                  // これより速いと減速度はグリップで決まる
     if (v > v1) {
         float v_end = (v_target > v1) ? v_target : v1;
-        s += (v * v - v_end * v_end) / (2.0f * GRIP_LONG_USE);
+        s += (v * v - v_end * v_end) / (2.0f * g);
         if (v_target >= v1) return s;
         v = v1;
     }

@@ -331,7 +331,8 @@ static int dbg_header_line(int n, char* buf, int size) {
         "LANE_PRE_M", "LANE_SECTION_M", "LANE_QUICK_LAT_MPS2", "LANE_CROSS_ADJUST_M", "SENSOR_HALF_WIDTH_M",
         "LANE_SNAP_ANGLE", "LANE_SNAP_LAT_MPS2", "LANE_SNAP_MPS", "LANE_SNAP_AHEAD_M", "LANE_SNAP_END_DEG", "LANE_SNAP_SEARCH_M",
         "crank_wide", "crank_app_mps", "crank_unwind_m",
-        "plan_switch_m", "lane_end_m", "lane_sw0_m", "lane_cross_m", "lane_cross_lag_m", "lane_offset_m"
+        "plan_switch_m", "lane_end_m", "lane_sw0_m", "lane_cross_m", "lane_cross_lag_m", "lane_offset_m",
+        "CRANK_BRAKE_DECEL_MPS2", "SPEED_MEAS_MAX_MPS"
     };
     const float vals[] = {
         (float)CURVE_DRIVE_PERCENT, V_MAX_MPS, MOTOR_TAU_S, GRIP_LAT_MPS2, GRIP_LONG_MPS2, PLAN_GRIP_RATIO_LAT, PLAN_GRIP_RATIO_LONG,
@@ -345,7 +346,8 @@ static int dbg_header_line(int n, char* buf, int size) {
         LANE_PRE_M, LANE_SECTION_M, LANE_QUICK_LAT_MPS2, LANE_CROSS_ADJUST_M, SENSOR_HALF_WIDTH_M,
         (float)LANE_SNAP_ANGLE, LANE_SNAP_LAT_MPS2, LANE_SNAP_MPS, LANE_SNAP_AHEAD_M, LANE_SNAP_END_DEG, LANE_SNAP_SEARCH_M,
         (float)dbg_p_crank_wide, dbg_p_crank_app, dbg_p_unwind_m,
-        dbg_p_switch, dbg_p_lane_end, dbg_p_lane_sw0, dbg_p_lane_cross, dbg_p_lane_lag, dbg_p_lane_offset
+        dbg_p_switch, dbg_p_lane_end, dbg_p_lane_sw0, dbg_p_lane_cross, dbg_p_lane_lag, dbg_p_lane_offset,
+        CRANK_BRAKE_DECEL_MPS2, SPEED_MEAS_MAX_MPS
     };
     static_assert(sizeof(names) / sizeof(names[0]) == sizeof(vals) / sizeof(vals[0]), "param names and values differ");
     const int np = sizeof(vals) / sizeof(vals[0]);
