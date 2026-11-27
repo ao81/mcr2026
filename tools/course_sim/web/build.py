@@ -128,7 +128,8 @@ def main():
             rev += "（コミットしていない変更あり）"
     except OSError:
         rev = "不明"
-    info = {"built": datetime.datetime.now().strftime("%Y-%m-%d"), "rev": rev}
+    # tools/local_site.py（ローカル版）は SIM_LOCAL=1 で、作った時刻も出す
+    info = {"built": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S" if os.environ.get("SIM_LOCAL") else "%Y-%m-%d"), "rev": rev}
     with open(os.path.join(HERE, "simulator_template.html"), encoding="utf-8") as f:
         page = f.read()
     data = "const WASM_B64 = \"%s\";\nconst CFG_ITEMS = %s;\nconst BUILD = %s;" % (
