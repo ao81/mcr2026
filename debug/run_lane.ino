@@ -422,14 +422,22 @@ void lane_speed_control(void) {
 // グイッと曲がるレーンチェンジ（USE_NEW_LANE_SNAP）
 //   中央線の切れ目を見つけたら、すぐに変える側へハンドルを切る（pattern 460 / 760）。
 //   角度は LANE_SNAP_ANGLE まで。速いときは、横の加速度 v²·曲率 が LANE_SNAP_LAT_MPS2 以下になる角度に小さくする。
-//   新しい中央線がセンサに見えたら、線に沿うように向きを戻す（pattern 470 / 770）。
-//   向きを戻すときは、車の向きのずれ ψ（ハンドル角度と速さから積み上げる）とセンサの所の線の位置 e から、
-//   センサが線の上に乗り続けるように曲がる（ずれは LANE_SNAP_AHEAD_M 進むごとに約 1/e に縮む）。
+//   戻す側へ切るとき（pattern 470 / 770）も同じ上限まで切る。
+//
+//   新しい線を見てから戻し始めると、サーボが反対へ動き切るまで（約 0.1 秒）曲がり続け、
+//   向きが付きすぎて、センサが新しい線を越えて外へ出る（LANE0052：線を見た時に向き 47°、戻しは 17.3° で頭打ち）。
+//   そこで、切れ目からの車の向き ψ と後輪の横の位置 y を、ハンドル角度と速さから積み上げて計算し、
+//   後輪から LANE_SNAP_POINT_M 前の点の横の位置 yc = y + Lc·sin ψ が新しい線（LANE_SHIFT_M 横）に着く前から戻し始める：
+//     ・サーボの遅れ（反対へ動き切るまでの時間）の分だけ先の ψ と yc を予測する
+//     ・その点が線に近づく速さを、ずれ ÷ LANE_SNAP_AHEAD_M にする曲がり具合
+//         κ = (ずれ ÷ A − sin ψ) ÷ (Lc·cos ψ)
+//       で曲がる（ずれが大きいうちは上限まで変える側へ切り、近づくと自然に反対へ切る）
+//     ・Lc をセンサの距離より短くするのは、後輪を早く新しい車線に入れるため。センサの距離の点を線に乗せると、
+//       車が斜めのまま長く走り、合流部分の終わりの角（棒）に後ろが当たる。代わりにセンサは少し線の向こうへふくらむ
+//   新しい線がセンサに見えたら、その位置で y を直す（積み上げの誤差を消す。見え続けている間は向き ψ も少しずつ直す）。
+//   線から離れすぎた白（新しい車線の向こう側の路肩の線など）は使わない（一度見る前は LANE_SNAP_GATE_M の 2.5 倍まで使う）。
 //   ψ が LANE_SNAP_END_DEG 以下で、線が通常走行の表の形に見えたら通常走行へ
-//   センサが後輪より 0.46m 前にあるので、センサが新しい線に着いた時には後輪はまだ横にあまり動いていない。
-//   左右対称に切り返すと後輪が新しい車線に届かないので、線を追いながら後輪を寄せていく
 //**********************************************************************
-float lane_snap_e;                         // USE_NEW_LANE_SNAP：最後に見えた新しい線の位置 [m]（0 はまだ見えていない）
 
 static float lane_snap_angle(float v) {
     float ang = (float)LANE_SNAP_ANGLE;
@@ -445,7 +453,8 @@ bool lane_start_snap(bool right) {
     plan_angle = lane_snap_angle(speed_mps);
     plan_speed_mps = speed_mps;
     lane_yaw = 0.0f;
-    lane_snap_e = 0.0f;
+    lane_snap_y = right ? lane_offset_m : -lane_offset_m;   // 切れ目の直前に線からずれていた分（変える側がプラス）
+    lane_snap_seen = 0;
     reset_distance();
     line_pass_state = PASS_WAIT;
     led_out(right ? 0x1 : 0x2);
@@ -455,59 +464,72 @@ bool lane_start_snap(bool right) {
     return true;
 }
 
-static void lane_yaw_update(bool right) {
+// ψ と y を 1ms 分進める
+static void lane_snap_integrate(bool right) {
     float v = speed_mps > 0.0f ? speed_mps : 0.0f;
-    lane_yaw += v * 0.001f * curvature_of_angle(servo_est_deg) * (right ? 1.0f : -1.0f);
+    float ds = v * 0.001f;
+    lane_snap_y += ds * sinf(lane_yaw);
+    lane_yaw += ds * curvature_of_angle(servo_est_deg) * (right ? 1.0f : -1.0f);
+}
+
+// 1ms ごとのハンドル角度の計算（460 と 470 で共通）。戻り値：変える側へ切っているなら 1
+static int lane_snap_control(bool right) {
+    const float dir = right ? 1.0f : -1.0f;
+    const float L = SENSOR_TO_REAR_AXLE_M;
+    lane_snap_integrate(right);
+    float psi = lane_yaw;
+    unsigned char c = sensor_inp(MASK4_4);
+    // 新しい線が見えたら、センサの横の位置を直す。センサの棒は車の向きに直角なので、
+    //   棒の上で e（右がプラス）の所に線があれば、線の横の位置 LANE_SHIFT_M = ys + e·dir·cos ψ
+    //   切れ目のすぐ後（古い線の端）と、計算した位置から離れすぎた白は使わない
+    if (c != 0x00 && dist_m > 0.03f) {
+        float ys = lane_snap_y + L * sinf(psi);
+        float ys_meas = LANE_SHIFT_M - line_position_m(c) * dir * cosf(psi);
+        float gap = ys_meas - ys;
+        if (!lane_snap_seen && fabsf(gap) < 2.5f * LANE_SNAP_GATE_M) {
+            lane_snap_y += gap;                    // 初めて見えた：位置をそのまま合わせる
+            lane_snap_seen = 1;
+        } else if (lane_snap_seen && fabsf(gap) < LANE_SNAP_GATE_M) {
+            // 見え続けている：位置を少しずつ直し、ずれ続ける分は向きの誤差（曲がり方・速さの見積もりの誤差）とみて向きも直す
+            lane_snap_y += LANE_SNAP_FIX_Y * gap;
+            lane_yaw += LANE_SNAP_FIX_YAW * gap / L;
+        }
+    }
+    // サーボの遅れの分だけ先を予測する（今の角度から反対の上限まで動く時間の半分 ＋ 動き始めの遅れ）
+    float v = speed_mps > 0.1f ? speed_mps : 0.1f;
+    float lim = lane_snap_angle(v);
+    float k_now = curvature_of_angle(servo_est_deg) * dir;
+    float tp = LANE_SNAP_LEAD * (SERVO_DEAD_S + (fabsf(servo_est_deg) + lim) / (2.0f * SERVO_SPEED_DPS));
+    float psi_p = psi + v * tp * k_now;
+    const float Lc = LANE_SNAP_POINT_M;
+    float yc_p = lane_snap_y + v * tp * sinf(0.5f * (psi + psi_p)) + Lc * sinf(psi_p);
+    float cp = cosf(psi_p);
+    if (cp < 0.3f) cp = 0.3f;
+    float kd = ((LANE_SHIFT_M - yc_p) / LANE_SNAP_AHEAD_M - sinf(psi_p)) / (Lc * cp);
+    float ang = atanf(WHEELBASE_M * kd) / DEG_TO_RAD_F;   // 変える側がプラス
+    if (ang > lim) ang = lim;
+    if (ang < -lim) ang = -lim;
+    ha_deg(dir * ang);
+    drive_at(plan_speed_mps, dir * ang);
+    return ang > 0.0f;
 }
 
 void run_lane_snap(bool right) {
-    const int dir = right ? 1 : -1;
-    lane_yaw_update(right);
-    unsigned char c = sensor_inp(MASK4_4);
-    if ((c != 0x00 && dist_m > 0.02f) || dist_m > LANE_SNAP_SEARCH_M) {
+    int toward = lane_snap_control(right);
+    if (!toward || lane_snap_seen) {
         cnt1 = 0;
         pattern = lane_pt(right, PT_LANE_R_SNAPBACK, PT_LANE_L_SNAPBACK);
-        run_lane_snapback(right);
-        return;
     }
-    ha_deg(dir * plan_angle);
-    drive_at(plan_speed_mps, dir * plan_angle);
 }
 
 void run_lane_snapback(bool right) {
-    const int dir = right ? 1 : -1;
-    lane_yaw_update(right);
     unsigned char c = sensor_inp(MASK4_4);
-    float psi = lane_yaw;
-    if (c != 0x00 && fabsf(psi) < LANE_SNAP_END_DEG * DEG_TO_RAD_F && find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0) {
+    bool done = c != 0x00 && fabsf(lane_yaw) < LANE_SNAP_END_DEG * DEG_TO_RAD_F && find_sensor(TRACE_SENSOR, TRACE_N, c) >= 0;
+    if (done || (!lane_snap_seen && dist_m > LANE_SNAP_SEARCH_M)) {   // 線が一度も見えないまま長く走ったら、通常走行に任せる
         led_out(0x0);
         cnt1 = 0;
         pattern = PT_TRACE;
         return;
     }
-    // センサの所の新しい線の位置 e（右がプラス）。見えないとき：一度見えていれば、最後に見えた側の端の外にあるとみる。
-    //   一度も見えていなければ（LANE_SNAP_SEARCH_M 走っても見えない）、向きだけ戻す
-    float e;
-    if (c != 0x00) {
-        e = line_position_m(c);
-        lane_snap_e = (e >= 0.0f) ? (e > 0.001f ? e : 0.001f) : (e < -0.001f ? e : -0.001f);
-    } else if (lane_snap_e != 0.0f) {
-        e = (lane_snap_e > 0.0f) ? 0.045f : -0.045f;
-    } else {
-        e = 0.0f;
-    }
-    // センサの所が線の上に乗り続け、ずれ e が LANE_SNAP_AHEAD_M 進むごとに約 1/e に縮むように曲がる。
-    //   センサの横の動き（変える側をプラス）：d(センサの位置)/ds = sin ψ + Ls·κ·cos ψ を e·dir ÷ A にする
-    //   → κ = (e·dir ÷ A − sin ψ) ÷ (Ls·cos ψ)。センサが線を追う間に、後輪も線へ寄っていき、向きのずれ ψ も 0 に近づく
-    float ed = e * dir;
-    float cp = cosf(psi);
-    if (cp < 0.3f) cp = 0.3f;
-    float kd = (ed / LANE_SNAP_AHEAD_M - sinf(psi)) / (SENSOR_TO_REAR_AXLE_M * cp);
-    float ang = atanf(WHEELBASE_M * kd * dir) / DEG_TO_RAD_F;
-    float lim = angle_for_radius(plan_speed_mps * plan_speed_mps / GRIP_LAT_USE);
-    if (lim > SERVO_MAX_ANGLE) lim = SERVO_MAX_ANGLE;
-    if (ang > lim) ang = lim;
-    if (ang < -lim) ang = -lim;
-    ha_deg(ang);
-    drive_at(plan_speed_mps, ang);
+    lane_snap_control(right);
 }

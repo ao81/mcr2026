@@ -24,7 +24,7 @@ typedef struct {
     int16_t dist;      // ラインの終わり（または曲がり始め）からの距離 [mm]
     int16_t vmax;      // 出力100%の速さ [mm/s]
     int16_t yaw;       // 曲がり始めてから向きが変わった角度 [0.1度]（クランクは crank_yaw、レーンチェンジ（DBG_TARGET 2）は lane_yaw）
-    int16_t lined;     // 線の向きの推定 [0.1度]（obs_z2。USE_NEW_LINE_SHAPE のとき通常走行の間だけ変わる）
+    int16_t lined;     // 線の向きの推定 [0.1度]（obs_z2。USE_NEW_LINE_SHAPE のとき通常走行の間だけ変わる）。DBG_TARGET 2 の 460/470・760/770 の間は lane_snap_y [mm]
     int16_t lat;       // 横の加速度の推定 [cm/s²]（速さ² × 車が本当に曲がっている曲率 car_k_eff。右がプラス）
     uint8_t sen;       // センサ 8 個
     int8_t ml;         // 左モータ出力 [%]
@@ -256,6 +256,10 @@ void dbg_sample(void) {
         now.yaw = dbg_i16(crank_yaw * (1800.0f / PI_F));
 #endif
         now.lined = dbg_i16(obs_z2 * (1800.0f / PI_F));
+#if DBG_TARGET == 2 && USE_NEW_LANE_SNAP
+        // グイッと曲がるレーンチェンジ（460/470・760/770）の間は、線の向きの代わりに、計算した後輪の横の位置 lane_snap_y [mm] を入れる
+        if ((pattern >= 460 && pattern <= 470) || (pattern >= 760 && pattern <= 770)) now.lined = dbg_i16(lane_snap_y * 1000.0f);
+#endif
         now.lat = dbg_i16(speed_mps * speed_mps * car_k_eff * 100.0f);
         const int lm = (int)(obs_z1 * 1000.0f + (obs_z1 >= 0.0f ? 0.5f : -0.5f));
         now.linemm = (int8_t)clamp_int(lm, -127, 127);
@@ -329,7 +333,7 @@ static int dbg_header_line(int n, char* buf, int size) {
         "CRANK_ENTRY_MPS", "CRANK_BRAKE_BEFORE_M", "CRANK_DIST_RATIO", "CRANK_WIDE_SEEN_M", "CRANK_WIDE_TO_M", "CRANK_EXIT_MIN_YAW_DEG",
         "LINE_SEEN_EXTRA_M", "LINE_PASS_OFFSET_MS", "CENTER_LINE_WIDTH_M", "BRAKE_DECEL_MPS2", "TREAD_M",
         "LANE_PRE_M", "LANE_SECTION_M", "LANE_QUICK_LAT_MPS2", "LANE_CROSS_ADJUST_M", "SENSOR_HALF_WIDTH_M",
-        "LANE_SNAP_ANGLE", "LANE_SNAP_LAT_MPS2", "LANE_SNAP_MPS", "LANE_SNAP_AHEAD_M", "LANE_SNAP_END_DEG", "LANE_SNAP_SEARCH_M",
+        "LANE_SNAP_ANGLE", "LANE_SNAP_LAT_MPS2", "LANE_SNAP_MPS", "LANE_SNAP_AHEAD_M", "LANE_SNAP_END_DEG", "LANE_SNAP_SEARCH_M", "LANE_SNAP_POINT_M", "LANE_SNAP_LEAD", "LANE_SNAP_GATE_M", "LANE_SNAP_FIX_Y", "LANE_SNAP_FIX_YAW",
         "crank_wide", "crank_app_mps", "crank_unwind_m",
         "plan_switch_m", "lane_end_m", "lane_sw0_m", "lane_cross_m", "lane_cross_lag_m", "lane_offset_m",
         "CRANK_BRAKE_DECEL_MPS2", "SPEED_MEAS_MAX_MPS"
@@ -344,7 +348,7 @@ static int dbg_header_line(int n, char* buf, int size) {
         CRANK_ENTRY_MPS, CRANK_BRAKE_BEFORE_M, CRANK_DIST_RATIO, CRANK_WIDE_SEEN_M, CRANK_WIDE_TO_M, CRANK_EXIT_MIN_YAW_DEG,
         LINE_SEEN_EXTRA_M, (float)LINE_PASS_OFFSET_MS, CENTER_LINE_WIDTH_M, BRAKE_DECEL_MPS2, TREAD_M,
         LANE_PRE_M, LANE_SECTION_M, LANE_QUICK_LAT_MPS2, LANE_CROSS_ADJUST_M, SENSOR_HALF_WIDTH_M,
-        (float)LANE_SNAP_ANGLE, LANE_SNAP_LAT_MPS2, LANE_SNAP_MPS, LANE_SNAP_AHEAD_M, LANE_SNAP_END_DEG, LANE_SNAP_SEARCH_M,
+        (float)LANE_SNAP_ANGLE, LANE_SNAP_LAT_MPS2, LANE_SNAP_MPS, LANE_SNAP_AHEAD_M, LANE_SNAP_END_DEG, LANE_SNAP_SEARCH_M, LANE_SNAP_POINT_M, LANE_SNAP_LEAD, LANE_SNAP_GATE_M, LANE_SNAP_FIX_Y, LANE_SNAP_FIX_YAW,
         (float)dbg_p_crank_wide, dbg_p_crank_app, dbg_p_unwind_m,
         dbg_p_switch, dbg_p_lane_end, dbg_p_lane_sw0, dbg_p_lane_cross, dbg_p_lane_lag, dbg_p_lane_offset,
         CRANK_BRAKE_DECEL_MPS2, SPEED_MEAS_MAX_MPS

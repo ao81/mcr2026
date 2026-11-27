@@ -315,6 +315,8 @@ volatile float lane_end_m;            // レーンチェンジ：S字を終え�
 volatile float lane_sw0_m;            // レーンチェンジ：計算した切り返しの所 [m]
 volatile float lane_cross_m;          // レーンチェンジ：センサが新しい線の真上を通るはずの所 [m]（0 以下は見ない）
 volatile float lane_yaw;              // USE_NEW_LANE_SNAP：中央線が切れてから車の向きが変わった角度 [rad]（車線を変える側がプラス）
+volatile float lane_snap_y;           // USE_NEW_LANE_SNAP：後輪の軸の横の位置 [m]（元の線から、車線を変える側がプラス）
+volatile int lane_snap_seen;          // USE_NEW_LANE_SNAP：新しい線を一度でも見たか
 volatile float lane_cross_lag_m;      // レーンチェンジ：S字の始めにサーボが効くまでに進む距離 [m]
 volatile float plan_switch_m;          // 計算した経路：レーンチェンジで逆向きにハンドルを切る所 [m]
 volatile float plan_speed_mps;         // 計算した経路：走る速さ [m/s]
