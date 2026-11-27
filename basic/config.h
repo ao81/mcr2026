@@ -117,24 +117,24 @@ const int LANE_RAMP[LANE_STEPS] = {
 //   ★の付いた数値は、車体やコースに合わせて測った値を入れる
 //************************************************************************
 #define USE_NEW_TRACTION        0   // 加速の出力を、タイヤが空回りしない範囲に制限する
-#define USE_NEW_TRACE_SPEED     0   // 通常走行(20〜25)の速さを、ハンドル角度から決まる「曲がれる上限の速さ」にする
+#define USE_NEW_TRACE_SPEED     1   // 通常走行(20〜25)の速さを、ハンドル角度から決まる「曲がれる上限の速さ」にする
 #define USE_NEW_CURVE_SPEED     0   // 大曲がり(30〜45)の速さも、同じ方法で決める
-#define USE_NEW_STEER           0   // 通常走行(20〜25)のハンドル角度を、線の位置から計算する（ピュアパシュート）
+#define USE_NEW_STEER           1   // 通常走行(20〜25)のハンドル角度を、線の位置から計算する（ピュアパシュート）
 #define USE_NEW_CRANK_BRAKE     1   // クランク手前の減速を、速さと残りの距離から計算する（USE_NEW_CRANK_TURN が 0 なら CRANK_ENTRY_MPS も入れる）
 #define USE_NEW_CRANK_TURN      1   // クランクを、コースからはみ出さない最大の半径の円弧で曲がる
 #define USE_NEW_LANE_BRAKE      1   // レーンチェンジ手前の減速を、速さと残りの距離から計算する（USE_NEW_LANE_STEER と一緒に使う）
                                     //   2026-11-24 から 1：模擬では元の方法はこの車の寸法でコースアウトし、新しい方法は出力100%のまま S字で移れた（docs/tuning_guide.md 8 章の最後）
 #define USE_NEW_LANE_STEER      1   // レーンチェンジを、同じ半径の円弧2つをつないだ最も緩い経路で行う
-#define USE_NEW_VMAX_LEARN      1   // ラインの通過で測った速さから、出力100%のときの速さ（電池の電圧で変わる）を走りながら直す（ラインの幅を合わせてから使う）
-#define USE_NEW_LINE_SHAPE      0   // センサと自分のハンドル角度から線の位置・向き・曲がり具合を推定し、サーボの遅れの分だけ先の状態でハンドルを切る（USE_NEW_STEER と一緒に使う）
-#define USE_NEW_CURVE_PREVIEW   0   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
-#define USE_NEW_CRANK_QUICK     1   // クランクを、手前で少しだけ減速し、ハンドルを大きく切って短い時間で90°曲がり、曲がり終わる前にハンドルを戻し始める（USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に使う）
-#define USE_NEW_BRAKE_RANGE     1   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
+#define USE_NEW_VMAX_LEARN      0   // ラインの通過で測った速さから、出力100%のときの速さ（電池の電圧で変わる）を走りながら直す（ラインの幅を合わせてから使う）
+#define USE_NEW_LINE_SHAPE      1   // センサと自分のハンドル角度から線の位置・向き・曲がり具合を推定し、サーボの遅れの分だけ先の状態でハンドルを切る（USE_NEW_STEER と一緒に使う）
+#define USE_NEW_CURVE_PREVIEW   1   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
+#define USE_NEW_CRANK_QUICK     0   // クランクを、手前で少しだけ減速し、ハンドルを大きく切って短い時間で90°曲がり、曲がり終わる前にハンドルを戻し始める（USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に使う）
+#define USE_NEW_BRAKE_RANGE     0   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
 
 #define USE_NEW_LANE_WIDTH_INTERVAL  0   // ハーフライン通過時、1msの測定誤差で説明できる速度のずれを除いて補正する
-#define USE_NEW_LANE_DISTANCE        1   // S字進入前、標識から中央線の切れ目までの距離で推定速度を補正する（USE_NEW_LANE_STEER と併用）
+#define USE_NEW_LANE_DISTANCE        0   // S字進入前、標識から中央線の切れ目までの距離で推定速度を補正する（USE_NEW_LANE_STEER と併用）
                                          //   2026-11-24 から 1：模擬で、線が見える幅が LINE_SEEN_EXTRA_M より 4mm 狭いときの失敗が 3/7 → 0/7 になった
-#define USE_NEW_CRANK_ANY_COURSE     1   // クランクを、コースの寸法（クロスラインの幅、クロスラインから曲がり角までの距離）を使わずに走る（USE_NEW_CRANK_QUICK と一緒に使う）
+#define USE_NEW_CRANK_ANY_COURSE     0   // クランクを、コースの寸法（クロスラインの幅、クロスラインから曲がり角までの距離）を使わずに走る（USE_NEW_CRANK_QUICK と一緒に使う）
                                          //   クロスラインは「この先にクランクがある」という目印にだけ使い、通過時間で速さを測らない。
                                          //   クロスラインを過ぎたら crank_app_mps（planner.ino の plan_setup で計算。曲がり角の線を見てからブレーキをかけても間に合う一番速い速さ）まで
                                          //   すぐに落とし、そのまま曲がり角の線まで走る。曲がり角の線（中央線＝規則で幅 20mm）で速さを測り直し、そこから曲がる。
