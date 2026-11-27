@@ -373,6 +373,8 @@ const int COURSE_START_ROWS[] = {
 #define LANE_SNAP_GATE_M        0.06f   // USE_NEW_LANE_SNAP：新しい線を一度見た後は、計算した位置からこれ [m] 以上離れた白は線とみなさない（向こう側の路肩の線を除く）
 #define LANE_SNAP_FIX_Y         0.2f    // USE_NEW_LANE_SNAP：新しい線が見えている間、1ms ごとに位置のずれのこの割合を直す
 #define LANE_SNAP_FIX_YAW       0.05f   // USE_NEW_LANE_SNAP：同じく、位置のずれ ÷ センサまでの距離 のこの割合を向きの誤差として直す
+#define LANE_SNAP_DIST_RATIO    0.70f   // USE_NEW_LANE_SNAP：計算の距離 ÷ 実際の距離（CRANK_DIST_RATIO と同じ考え）。向きと横の位置の計算で、推定の速さをこれで割って本当の速さにする。
+                                        //   V_MAX_MPS を本当の最高速度に合わせたら 1.0 にする
 #define LANE_QUICK_LAT_MPS2     4.0f    // S字を、横の加速度がこの値 [m/s²] になる短い経路にする（クイッと曲がって早く新しい車線に入る）。0 なら一番緩い経路（前の動き）
                                         //   2026-11-26 模擬（センサの補正 LANE_CROSS_ADJUST_M あり、最高速度 2.5 m/s）：緩い経路（約 5.5°）は、曲がり方が 0.7 倍以下・区間が 0.45m・
                                         //   センサが 4cm 近い（曲がり方 0.8 倍）で失敗。4.0（約 8°）はどれも失敗 0、曲がり方 0.6 倍で 3/7。代わりにタイヤの横のグリップが 3.5 m/s² しかないと 4/7 失敗

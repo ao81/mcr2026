@@ -43,6 +43,7 @@ extern volatile float speed_mps;
 extern volatile float dist_m, plan_wait_m, plan_len_m, plan_speed_mps, plan_switch_m, lane_end_m;
 extern volatile float plan_angle;
 extern volatile float obs_z1, obs_z2, obs_z3, servo_est_deg;
+extern volatile float lane_yaw, lane_snap_y;
 void setup();
 void loop();
 void AGTCallback(timer_callback_args_t* p_args);
@@ -406,9 +407,9 @@ int main(int argc, char** argv) {
             break;
         }
         if ((int)P["trace"] && (t % 10 == 0))
-            printf("t=%ld p=%d s=%02x x=%.3f y=%.3f psi=%.1f v=%.2f steer=%.1f(est %.1f) cmd=%.1f pl=%.0f pr=%.0f est=%.2f dist=%.3f obs(%.1fmm %.3f %.2f) plan(wait=%.3f len=%.3f v=%.2f ang=%.1f sw=%.3f end=%.3f)\n",
+            printf("t=%ld p=%d s=%02x x=%.3f y=%.3f psi=%.1f v=%.2f steer=%.1f(est %.1f) cmd=%.1f pl=%.0f pr=%.0f est=%.2f dist=%.3f obs(%.1fmm %.3f %.2f) plan(wait=%.3f len=%.3f v=%.2f ang=%.1f sw=%.3f end=%.3f) snap(y=%.3f psi=%.1f)\n",
                    t - t_start, pattern, s, x, y, psi * 180 / M_PI, v, steer, (double)servo_est_deg, ang_cmd, pl, pr, speed_mps, dist_m,
-                   obs_z1 * 1000, (double)obs_z2, (double)obs_z3, plan_wait_m, plan_len_m, plan_speed_mps, plan_angle, plan_switch_m, lane_end_m);
+                   obs_z1 * 1000, (double)obs_z2, (double)obs_z3, plan_wait_m, plan_len_m, plan_speed_mps, plan_angle, plan_switch_m, lane_end_m, (double)lane_snap_y, (double)lane_yaw * 180 / M_PI);
         // ゴール
         bool fin = false;
         if (c.kind == 0) fin = (c.dir > 0) ? (x >= c.finish) : (x <= -c.finish);

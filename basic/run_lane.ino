@@ -439,6 +439,8 @@ void lane_speed_control(void) {
 //   ψ が LANE_SNAP_END_DEG 以下で、線が通常走行の表の形に見えたら通常走行へ
 //**********************************************************************
 
+static float lane_snap_cmd_deg;   // USE_NEW_LANE_SNAP：前のハンドルの指令 [度]（変える側がプラス）
+
 static float lane_snap_angle(float v) {
     float ang = (float)LANE_SNAP_ANGLE;
     if (LANE_SNAP_LAT_MPS2 > 0.0f && v > 0.1f) {
@@ -455,6 +457,7 @@ bool lane_start_snap(bool right) {
     lane_yaw = 0.0f;
     lane_snap_y = right ? lane_offset_m : -lane_offset_m;   // 切れ目の直前に線からずれていた分（変える側がプラス）
     lane_snap_seen = 0;
+    lane_snap_cmd_deg = 0.0f;
     reset_distance();
     line_pass_state = PASS_WAIT;
     led_out(right ? 0x1 : 0x2);
@@ -465,15 +468,41 @@ bool lane_start_snap(bool right) {
 }
 
 // ψ と y を 1ms 分進める
-static void lane_snap_integrate(bool right) {
+//   速さの推定 speed_mps は V_MAX_MPS が本当の最高速度より小さいと遅く出るので、LANE_SNAP_DIST_RATIO で割って本当の速さにする
+static float lane_snap_real_v(void) {
     float v = speed_mps > 0.0f ? speed_mps : 0.0f;
-    float ds = v * 0.001f;
+    return LANE_SNAP_DIST_RATIO > 0.1f ? v / LANE_SNAP_DIST_RATIO : v;
+}
+
+// 棒の上の白の塊のうち、位置 e_pred [m] に一番近い塊の中心 [m]（右がプラス）。
+//   新しい線と向こう側の路肩の線が両端に同時に見えたとき（10000001 など）、平均すると真ん中に線があることになってしまうため
+static float lane_snap_blob(unsigned char c, float e_pred) {
+    float best = 0.0f, best_d = 1e9f;
+    int b = 0;
+    while (b < 8) {
+        if (!(c & (0x80 >> b))) { b++; continue; }
+        long sum = 0;
+        int n = 0;
+        while (b < 8 && (c & (0x80 >> b))) { sum += SENSOR_X_MM[b]; n++; b++; }
+        float e = (float)sum / n * 0.001f;
+        float d = fabsf(e - e_pred);
+        if (d < best_d) { best_d = d; best = e; }
+    }
+    return best;
+}
+
+static void lane_snap_integrate(bool right) {
+    float ds = lane_snap_real_v() * 0.001f;
     lane_snap_y += ds * sinf(lane_yaw);
     lane_yaw += ds * curvature_of_angle(servo_est_deg) * (right ? 1.0f : -1.0f);
 }
 
-// 1ms ごとのハンドル角度の計算（460 と 470 で共通）。戻り値：変える側へ切っているなら 1
-static int lane_snap_control(bool right) {
+// 1ms ごとのハンドル角度の計算（460 と 470 で共通）。戻り値：計算した角度（変える側がプラス、上限で切る前）
+//   turning = 1（460）：まだ上限まで切っている間。予測の時間は、今の角度から反対の上限まで動く時間の半分 ＋ 動き始めの遅れ。
+//                       計算した角度が上限より小さくなったら、戻し始める時（470 へ）
+//   turning = 0（470）：予測の時間は、サーボがまだ変える側に切れている間は、その角度から反対へ同じだけ切るまでの時間（戻し遅れを防ぐ）。
+//                       戻した後は、今の指令まで動き切るまでの遅れだけ（長く予測すると、先の点を見すぎて車が斜めのまま進む）
+static float lane_snap_control(bool right, int turning) {
     const float dir = right ? 1.0f : -1.0f;
     const float L = SENSOR_TO_REAR_AXLE_M;
     lane_snap_integrate(right);
@@ -484,7 +513,10 @@ static int lane_snap_control(bool right) {
     //   切れ目のすぐ後（古い線の端）と、計算した位置から離れすぎた白は使わない
     if (c != 0x00 && dist_m > 0.03f) {
         float ys = lane_snap_y + L * sinf(psi);
-        float ys_meas = LANE_SHIFT_M - line_position_m(c) * dir * cosf(psi);
+        float cq = cosf(psi);
+        if (cq < 0.3f) cq = 0.3f;
+        float e_pred = (LANE_SHIFT_M - ys) * dir / cq;     // 計算の位置から見た、棒の上の線の位置
+        float ys_meas = LANE_SHIFT_M - lane_snap_blob(c, e_pred) * dir * cosf(psi);
         float gap = ys_meas - ys;
         if (!lane_snap_seen && fabsf(gap) < 2.5f * LANE_SNAP_GATE_M) {
             lane_snap_y += gap;                    // 初めて見えた：位置をそのまま合わせる
@@ -496,27 +528,32 @@ static int lane_snap_control(bool right) {
         }
     }
     // サーボの遅れの分だけ先を予測する（今の角度から反対の上限まで動く時間の半分 ＋ 動き始めの遅れ）
-    float v = speed_mps > 0.1f ? speed_mps : 0.1f;
-    float lim = lane_snap_angle(v);
+    float lim = lane_snap_angle(speed_mps > 0.1f ? speed_mps : 0.1f);   // 角度の上限は、ao が調整した値のまま推定の速さで決める
+    float v = lane_snap_real_v();
+    if (v < 0.1f) v = 0.1f;
+    float servo = servo_est_deg * dir;
     float k_now = curvature_of_angle(servo_est_deg) * dir;
-    float tp = LANE_SNAP_LEAD * (SERVO_DEAD_S + (fabsf(servo_est_deg) + lim) / (2.0f * SERVO_SPEED_DPS));
+    float tp = turning ? LANE_SNAP_LEAD * (SERVO_DEAD_S + (fabsf(servo) + lim) / (2.0f * SERVO_SPEED_DPS))
+                       : SERVO_DEAD_S + fmaxf(fmaxf(servo, 0.0f) / SERVO_SPEED_DPS, fabsf(lane_snap_cmd_deg - servo) / (2.0f * SERVO_SPEED_DPS));
     float psi_p = psi + v * tp * k_now;
     const float Lc = LANE_SNAP_POINT_M;
     float yc_p = lane_snap_y + v * tp * sinf(0.5f * (psi + psi_p)) + Lc * sinf(psi_p);
     float cp = cosf(psi_p);
     if (cp < 0.3f) cp = 0.3f;
     float kd = ((LANE_SHIFT_M - yc_p) / LANE_SNAP_AHEAD_M - sinf(psi_p)) / (Lc * cp);
-    float ang = atanf(WHEELBASE_M * kd) / DEG_TO_RAD_F;   // 変える側がプラス
+    float raw = atanf(WHEELBASE_M * kd) / DEG_TO_RAD_F;   // 変える側がプラス
+    float ang = turning ? lim : raw;                      // 460 の間は上限まで切り続ける
     if (ang > lim) ang = lim;
     if (ang < -lim) ang = -lim;
+    lane_snap_cmd_deg = ang;
     ha_deg(dir * ang);
     drive_at(plan_speed_mps, dir * ang);
-    return ang > 0.0f;
+    return raw;
 }
 
 void run_lane_snap(bool right) {
-    int toward = lane_snap_control(right);
-    if (!toward || lane_snap_seen) {
+    float raw = lane_snap_control(right, 1);
+    if (raw < lane_snap_angle(speed_mps > 0.1f ? speed_mps : 0.1f) || lane_snap_seen) {   // 戻し始める時
         cnt1 = 0;
         pattern = lane_pt(right, PT_LANE_R_SNAPBACK, PT_LANE_L_SNAPBACK);
     }
@@ -531,5 +568,5 @@ void run_lane_snapback(bool right) {
         pattern = PT_TRACE;
         return;
     }
-    lane_snap_control(right);
+    lane_snap_control(right, 0);
 }

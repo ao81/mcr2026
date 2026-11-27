@@ -24,7 +24,7 @@ typedef struct {
     int16_t dist;      // ラインの終わり（または曲がり始め）からの距離 [mm]
     int16_t vmax;      // 出力100%の速さ [mm/s]
     int16_t yaw;       // 曲がり始めてから向きが変わった角度 [0.1度]（クランクは crank_yaw、レーンチェンジ（DBG_TARGET 2）は lane_yaw）
-    int16_t lined;     // 線の向きの推定 [0.1度]（obs_z2。USE_NEW_LINE_SHAPE のとき通常走行の間だけ変わる）。DBG_TARGET 2 の 460/470・760/770 の間は lane_snap_y [mm]
+    int16_t lined;     // 線の向きの推定 [0.1度]（obs_z2。USE_NEW_LINE_SHAPE のとき通常走行の間だけ変わる）。460/470・760/770 の間は lane_snap_y [mm]
     int16_t lat;       // 横の加速度の推定 [cm/s²]（速さ² × 車が本当に曲がっている曲率 car_k_eff。右がプラス）
     uint8_t sen;       // センサ 8 個
     int8_t ml;         // 左モータ出力 [%]
@@ -256,9 +256,13 @@ void dbg_sample(void) {
         now.yaw = dbg_i16(crank_yaw * (1800.0f / PI_F));
 #endif
         now.lined = dbg_i16(obs_z2 * (1800.0f / PI_F));
-#if DBG_TARGET == 2 && USE_NEW_LANE_SNAP
-        // グイッと曲がるレーンチェンジ（460/470・760/770）の間は、線の向きの代わりに、計算した後輪の横の位置 lane_snap_y [mm] を入れる
-        if ((pattern >= 460 && pattern <= 470) || (pattern >= 760 && pattern <= 770)) now.lined = dbg_i16(lane_snap_y * 1000.0f);
+#if USE_NEW_LANE_SNAP
+        // グイッと曲がるレーンチェンジ（460/470・760/770）の間は、どの DBG_TARGET でも、
+        // yaw に計算した向き lane_yaw、線の向きの代わりに計算した後輪の横の位置 lane_snap_y [mm] を入れる
+        if ((pattern >= 460 && pattern <= 470) || (pattern >= 760 && pattern <= 770)) {
+            now.yaw = dbg_i16(lane_yaw * (1800.0f / PI_F));
+            now.lined = dbg_i16(lane_snap_y * 1000.0f);
+        }
 #endif
         now.lat = dbg_i16(speed_mps * speed_mps * car_k_eff * 100.0f);
         const int lm = (int)(obs_z1 * 1000.0f + (obs_z1 >= 0.0f ? 0.5f : -0.5f));
