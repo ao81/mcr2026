@@ -118,7 +118,7 @@ function trialQueue(target, seen, params, bounds={}, seed=null) {
   specs(lane,[['LANE_START_WAIT_MS',-3,1,300]]);
   specs(lane && get('USE_NEW_LANE_STEER'),[['LANE_SEARCH_M',-0.01,0.02,0.6]]);
   specs(lane && get('USE_NEW_LANE_DISTANCE'),[['LANE_DIST_ERR',0.005,0.005,0.20]]);
-  specs(lane && get('USE_NEW_LANE_SNAP'),[['LANE_SNAP_ANGLE',1,3,get('SERVO_MAX_ANGLE')],['LANE_SNAP_LAT_MPS2',0.25,1,10],['LANE_SNAP_AHEAD_M',0.01,0.02,0.4]]);
+  specs(lane && get('USE_NEW_LANE_SNAP'),[['LANE_SNAP_ANGLE',1,3,get('SERVO_MAX_ANGLE')],['LANE_SNAP_LAT_MPS2',0.25,1,16],['LANE_SNAP_AHEAD_M',0.01,0.02,0.4],['LANE_SNAP_POINT_M',0.01,0.10,get('SENSOR_TO_REAR_AXLE_M')]]);
   specs(legacyLane,[['LANE_STEER_ANGLE',1,1,get('SERVO_MAX_ANGLE')],['LANE_STRAIGHT_ANGLE',1,0,12]]);
   specs(trace,[['CURVE_DRIVE_PERCENT',2,1,100]]);
   specs(true,[['DIP_SPEED_BASE',1,1,7],['PLAN_GRIP_RATIO_LAT',0.02,0.35,1],['PLAN_GRIP_RATIO_LONG',0.02,0.35,1]]);
