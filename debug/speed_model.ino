@@ -66,6 +66,12 @@ float brake_decel_mps2(void) {
 //**********************************************************************
 void speed_model_update(void) {
     const float dt = 0.001f;
+#if !USE_NEW_VMAX_LEARN
+    // クロスラインからクランクを曲がり終えるまで（pattern 100〜161）は、出力100%の速さを実車の値 CRANK_VMAX_MPS にする。
+    // V_MAX_MPS（1.8）は実車（約 2.5 m/s）より遅いので、0.70 m/s に保つつもりの出力 56% で実車は約 1.0 m/s 出て、
+    // 曲がり始めるまでの距離も実際より短く数えていた（FULL0059：0.113m 直進のつもりが約 0.16m 進み、センサがコースの端を越えた）
+    v_max_mps = (CRANK_VMAX_MPS > 0.0f && pattern >= PT_CROSS_FOUND && pattern <= PT_CRANK_R_OUTSIDE) ? CRANK_VMAX_MPS : V_MAX_MPS;
+#endif
     servo_model_update();
     float power = (log_raw.ml + log_raw.mr) * 0.5f;          // DIPスイッチで縮小した後の出力
     // 同じ出力をどれだけ続けているか（USE_NEW_VMAX_LEARN で、ラインで測った速さから v_max_mps を直接求めるのに使う）。
