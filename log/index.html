@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>詳細ログを見る</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --sub: #5d6676; --line: #dde1e8; --grid: #eceff3;
+  --accent: #2563eb; --accent-bg: #e8effe; --err: #c62828; --err-bg: #fdeaea;
+  --c0: #2563eb; --c1: #d9480f; --c2: #2b8a3e; --sen: #1d2330;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, "BIZ UDGothic", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --sub: #9aa3b2; --line: #2e343e; --grid: #252a33;
+    --accent: #7aa2ff; --accent-bg: #1f2a44; --err: #ff7b7b; --err-bg: #3c1d1d;
+    --c0: #7aa2ff; --c1: #ff9f5a; --c2: #6fd391; --sen: #e6e9ef;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --sub: #9aa3b2; --line: #2e343e; --grid: #252a33;
+  --accent: #7aa2ff; --accent-bg: #1f2a44; --err: #ff7b7b; --err-bg: #3c1d1d;
+  --c0: #7aa2ff; --c1: #ff9f5a; --c2: #6fd391; --sen: #e6e9ef;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+a { color: var(--accent); }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 0 0 14px; min-width: 0; }
+.sub { color: var(--sub); font-size: 12.5px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+button, input, select { font: inherit; }
+button { padding: 4px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+input[type=number] { width: 6.5em; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+.files { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.file { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex: none; }
+.err { background: var(--err-bg); color: var(--err); padding: 6px 10px; border-radius: 6px; margin-top: 8px; white-space: pre-wrap; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; width: 100%; }
+th, td { border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { color: var(--sub); font-weight: 600; white-space: nowrap; }
+td.n { font-family: var(--mono); white-space: nowrap; }
+td.k { white-space: nowrap; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; }
+.chart .title { font-size: 12.5px; color: var(--sub); margin: 6px 0 0; }
+svg text { fill: var(--sub); font-size: 11px; font-family: var(--mono); }
+#tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font: 12px/1.45 var(--mono); white-space: pre; display: none; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.hidden { display: none !important; }
+details summary { cursor: pointer; color: var(--accent); }
+@media (max-width: 600px) { main { padding: 10px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>詳細ログを見る</h1>
+  <p class="sub">デバッグモードの CSV（CRK0001.csv・LANE0001.csv・CURV0001.csv・TRCE・FULL・dbg0001.csv）を開くと、区間の要点の表とグラフを出します。
+  ファイルはこのブラウザの中だけで読み、どこにも送りません。3本まで重ねて比べられます（区間に入った時を 0 ms にそろえます）。
+  <a href="../config/">パラメータ編集</a>・<a href="../">道具の一覧</a></p>
+
+  <div class="box">
+    <div class="row">
+      <label>CSV を開く（複数可） <input type="file" id="fileIn" accept=".csv,text/csv" multiple></label>
+      <button id="clear">すべて閉じる</button>
+    </div>
+    <div class="files" id="files"></div>
+    <div id="err" class="err hidden"></div>
+  </div>
+
+  <div id="out" class="hidden">
+    <div class="box">
+      <h2>要点</h2>
+      <p class="sub">時間は区間に入った時（クロスライン・ハーフラインを見つけた時、カーブなら曲がり始めた時）からの ms です。
+      「1ms 単位」は、その前の行が 1ms 前にあるので時刻がちょうど分かる値です。「〜N ms」は前の行から N ms あいているので、その間のどこかで起きた値です。
+      距離はラインの終わり（曲がり角の線を見つけた後は、その所）からの推定の距離です。</p>
+      <div class="tbl"><table id="summary"></table></div>
+    </div>
+
+    <div class="box">
+      <div class="row">
+        <h2 style="margin:0">グラフ</h2>
+        <label>表示する時間 <input type="number" id="from" step="10"> 〜 <input type="number" id="to" step="10"> ms</label>
+        <button id="vEvent">区間</button>
+        <button id="vAll">全部</button>
+        <span class="sub">グラフの上でドラッグすると、その範囲を拡大します。線の上に指やマウスを置くと値を出します。</span>
+      </div>
+      <div id="charts"></div>
+    </div>
+
+    <div class="box">
+      <h2>pattern の流れ</h2>
+      <div class="row"><label>ファイル <select id="ptFile"></select></label></div>
+      <div class="tbl"><table id="ptTable"></table></div>
+    </div>
+
+    <div class="box">
+      <details><summary>記録した時の設定（#param・#switch）</summary>
+        <div class="tbl"><table id="params"></table></div>
+      </details>
+    </div>
+  </div>
+</main>
+<div id="tip"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const COLORS = ['--c0', '--c1', '--c2'];
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const logs = [];
+let view = null;   // {from, to}
+
+const TARGETS = { 1: 'クランク', 2: 'レーンチェンジ', 3: '時間指定', 4: 'カーブ', 5: '通常走行', 6: '総合' };
+const REASONS = { 1: '区間が終わった', 2: '途中で止まった（コースアウト・自動停止・プッシュスイッチ、または区間が長すぎた）', 3: '時間指定の終わり', 4: '模擬の終わり' };
+const PT_NAMES = {
+  0: 'スイッチ待ち', 1: 'スタート待ち', 100: 'クロスライン検出', 101: 'クロスライン通過中', 102: '減速(判定前)', 103: '減速・クランク探し',
+  110: '左クランク突入', 111: '左クランク低速旋回', 112: '左クランク円弧', 120: '左クランク復帰', 121: '左クランク外へはみ出し',
+  150: '右クランク突入', 151: '右クランク低速旋回', 152: '右クランク円弧', 160: '右クランク復帰', 161: '右クランク外へはみ出し',
+  200: '右ハーフライン検出', 201: '右ハーフライン通過中', 202: '右レーンチェンジ段階決め',
+  500: '左ハーフライン検出', 501: '左ハーフライン通過中', 502: '左レーンチェンジ段階決め',
+  460: '右レーンチェンジ グイッと曲がる', 470: '右レーンチェンジ 向きを戻す', 760: '左レーンチェンジ グイッと曲がる', 770: '左レーンチェンジ 向きを戻す',
+  800: '自動停止', 801: '完全停止', 1001: '終了'
+};
+function ptName(p) {
+  if (PT_NAMES[p]) return PT_NAMES[p];
+  if (p >= 20 && p < 30) return '通常走行 段階' + (p - 20);
+  if (p >= 30 && p < 40) return '右大曲がり';
+  if (p >= 40 && p < 50) return '左大曲がり';
+  for (const [base, side] of [[300, '右'], [600, '左']]) {
+    if (p >= base && p < base + 160) {
+      const kind = ['直進(切れ目待ち)', 'ハンドルを切る', '切り終わって直進', 'S字円弧', 'S字後に線探し', '新しい線に合わせる', '終了処理', '外へふくらんだ'][Math.floor((p - base) / 20)];
+      return side + 'レーンチェンジ ' + kind;
+    }
+  }
+  return String(p);
+}
+// pattern の帯の色（種類ごと）
+function ptHue(p) {
+  if (p < 30) return 210; if (p < 50) return 180; if (p < 110) return 45; if (p < 200) return p % 50 >= 20 ? 0 : 280;
+  if (p < 500) return p >= 440 && p < 460 ? 0 : 140; if (p < 800) return p >= 740 && p < 760 ? 0 : 100; return 0;
+}
+
+// ---------------------------------------------------------------------------
+// 読み込み
+// ---------------------------------------------------------------------------
+function parse(text, name) {
+  const rows = [], params = {}, sw = {}, meta = {};
+  let cols = null, complete = null;
+  for (let line of text.split(/\r?\n/)) {
+    line = line.trim().replace(/^"|"$/g, '');
+    if (!line) continue;
+    const c = line.split(',');
+    if (line.startsWith('#')) {
+      const tag = c[0].slice(1);
+      if (tag === 'param') params[c[1]] = Number(c[2]);
+      else if (tag === 'switch') { for (let i = 1; i + 1 < c.length; i += 2) sw[c[i]] = Number(c[i + 1]); }
+      else if (tag === 'complete') complete = Number(c[1]);
+      else { meta[tag] = Number(c[1]); for (let i = 2; i + 1 < c.length; i += 2) meta[c[i]] = Number(c[i + 1]); }
+      continue;
+    }
+    if (!cols) { cols = c.map(s => s.trim()); continue; }
+    if (c.length < cols.length) continue;
+    const r = {};
+    cols.forEach((k, i) => {
+      const x = c[i].trim().replace(/^'/, '');
+      if (k === 'sensor') { r.sensor = x.padStart(8, '0'); r.sen = parseInt(r.sensor, 2); }
+      else r[k] = Number(x);
+    });
+    if (!Number.isFinite(r.ms)) continue;
+    rows.push(r);
+  }
+  if (!cols || !rows.length) throw Error(name + '：データの行がありません（デバッグモードの CSV か確認してください）');
+  for (const k of ['ms', 'pattern', 'sensor', 'speed_mm_s']) if (!cols.includes(k)) throw Error(name + '：列 ' + k + ' がありません');
+  rows.sort((a, b) => a.ms - b.ms);
+  rows.forEach((r, i) => { r.gap = i ? r.ms - rows[i - 1].ms : null; });
+  const trig = meta.reason !== undefined && meta.trigger_ms > 0 ? meta.trigger_ms : rows[0].ms;
+  const end = meta.end_ms > trig ? meta.end_ms : null;
+  return { name, rows, params, sw, meta, cols, trig, end, complete, hasChg: cols.includes('chg') };
+}
+
+$('fileIn').onchange = async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  const errs = [];
+  for (const f of files) {
+    if (logs.length >= 3) { errs.push('重ねられるのは3本までです。「すべて閉じる」か、ファイルの × で閉じてください'); break; }
+    try { logs.push(parse(await f.text(), f.name)); } catch (err) { errs.push(err.message); }
+  }
+  $('err').textContent = errs.join('\n');
+  $('err').classList.toggle('hidden', !errs.length);
+  view = null;
+  render();
+};
+$('clear').onclick = () => { logs.length = 0; view = null; render(); };
+
+// ---------------------------------------------------------------------------
+// 要点の計算
+// ---------------------------------------------------------------------------
+const inR = (p, list) => list.some(([a, b]) => p >= a && p <= b);
+// 条件に合う最初の行（区間の中）。時刻の確かさ（前の行との間隔）も返す
+function first(L, test, from) {
+  const t0 = from === undefined ? L.trig : from;
+  const i = L.rows.findIndex(r => r.ms >= t0 && test(r));
+  return i < 0 ? null : L.rows[i];
+}
+const rel = (L, r) => r ? r.ms - L.trig : null;
+// 時刻がちょうど分かる行か。変化した瞬間の行を足している間は、pattern・ブレーキ・モータの向きなどが変わった ms に必ず行があるので、
+// 決まった間隔の行でも、そこで変わったのならその ms に変わった
+function exact(L, r) {
+  if (r.gap === null || r.gap <= 1 || r.chg === 1) return true;
+  if (L.meta.change_rows !== 1 || r.ms < L.trig) return false;
+  if (L.capMs === undefined) {
+    const chg = L.rows.filter(x => x.chg === 1);
+    L.capMs = L.meta.change_used >= L.meta.change_max && chg.length ? chg.at(-1).ms : Infinity;
+  }
+  return r.ms <= L.capMs;
+}
+function when(L, r) {
+  if (!r) return '—';
+  return (r.ms - L.trig) + ' ms' + (exact(L, r) ? '（1ms 単位）' : '（〜' + r.gap + ' ms）');
+}
+const v = r => r ? (r.speed_mm_s / 1000).toFixed(2) + ' m/s' : '—';
+const d = r => r && Number.isFinite(r.dist_mm) ? (r.dist_mm / 1000).toFixed(3) + ' m' : '—';
+const num = (x, k = 2, u = '') => Number.isFinite(x) ? x.toFixed(k) + u : '—';
+function evRows(L) { return L.rows.filter(r => r.ms >= L.trig && (L.end === null || r.ms < L.end)); }
+function maxAbs(rows, key, scale) {
+  let best = null;
+  for (const r of rows) if (Number.isFinite(r[key]) && (!best || Math.abs(r[key]) > Math.abs(best[key]))) best = r;
+  return best ? { val: best[key] * scale, r: best } : null;
+}
+
+function summary(L) {
+  const m = L.meta, p = L.params, out = [];
+  const ev = evRows(L);
+  const add = (k, val) => out.push([k, val]);
+  add('区間', (TARGETS[m.target] || '?') + ' ' + (m.target_no || '') + ' 回目　走行 ' + (m.run ?? '?') + '　DIP ' + (m.dip ?? '?'));
+  add('記録を止めた理由', REASONS[m.reason] || String(m.reason ?? '?'));
+  add('記録の間隔', (m.interval_ms ?? '?') + ' ms' + (L.hasChg ? '　変化した瞬間の行 ' + (m.change_used ?? '?') + ' 行（上限 ' + (m.change_max ?? '?') + '）' : '　（変化した瞬間の行なし：古い形式）'));
+  add('区間の時間', L.end ? (L.end - L.trig) + ' ms' : '— （区間の終わりが記録されていない）');
+  const top = ev.reduce((a, r) => !a || r.speed_mm_s > a.speed_mm_s ? r : a, null);
+  add('区間の中の最高の速さ（推定）', v(top));
+  const lat = L.cols.includes('lat_cm_s2') ? maxAbs(ev, 'lat_cm_s2', 0.01) : null;
+  if (lat) add('横の加速度の最大（推定）', num(Math.abs(lat.val), 2, ' m/s²') + '　' + rel(L, lat.r) + ' ms、' + v(lat.r) + '（上限 GRIP_LAT_MPS2 ' + num(p.GRIP_LAT_MPS2, 1) + '）');
+  const out1 = ev.find(r => inR(r.pattern, [[121, 121], [161, 161], [440, 459], [740, 759], [801, 801]]));
+  if (m.target === 1) {
+    const passEnd = first(L, r => r.pattern !== 100 && r.pattern !== 101);
+    const before = passEnd ? L.rows[L.rows.indexOf(passEnd) - 1] : null;
+    add('クロスラインの通過時間（行から）', passEnd ? when(L, passEnd) + '　走行プログラムが測った値 ' + (passEnd.line_pass_ms ?? '—') + ' ms' : '—');
+    add('通過時間で速さを直す前 → 後', v(before) + ' → ' + v(passEnd));
+    const brake = first(L, r => inR(r.pattern, [[100, 103]]) && (r.brake === 1 || r.motor_l < 0 || r.motor_r < 0));
+    add('ブレーキを始めた（曲がり角の線の手前）', brake ? when(L, brake) + '、' + v(brake) + '、距離 ' + d(brake) : 'なし');
+    const corner = first(L, r => inR(r.pattern, [[110, 112], [150, 152]]));
+    const prev = corner ? L.rows[L.rows.indexOf(corner) - 1] : null;
+    add('曲がり角の線を見つけた', corner ? when(L, corner) + '、' + v(corner) + '、距離 ' + d(prev) + '（見つける直前の行）　' + ptName(corner.pattern) : 'なし');
+    add('曲がる速さの計画', 'crank_entry_mps ' + num(p.crank_entry_mps, 2, ' m/s') + '　曲がり角まで crank_to_m ' + num(p.crank_to_m, 3, ' m') +
+      (p.CRANK_BRAKE_BEFORE_M > 0 ? '　ブレーキは曲がり角の ' + num(p.CRANK_BRAKE_BEFORE_M, 2, ' m') + ' 手前から（計算の距離 × ' + num(p.CRANK_DIST_RATIO, 2) + '）' : ''));
+    if (brake && corner && corner.ms > brake.ms) add('ブレーキから曲がり角の線まで', (corner.ms - brake.ms) + ' ms、速さ ' + v(brake) + ' → ' + v(corner));
+    const unwind = first(L, r => r.unwind === 1);
+    if (unwind) add('ハンドルを戻し始めた', when(L, unwind) + '、向き ' + num(unwind.yaw_deg10 / 10, 1, '°'));
+    const yaw = maxAbs(ev, 'yaw_deg10', 0.1);
+    if (yaw && yaw.val) add('向きの変化の最大', num(Math.abs(yaw.val), 1, '°') + '　' + rel(L, yaw.r) + ' ms');
+  } else if (m.target === 2) {
+    const passEnd = first(L, r => !inR(r.pattern, [[200, 201], [500, 501]]));
+    add('ハーフラインの通過時間（行から）', passEnd ? when(L, passEnd) + '　走行プログラムが測った値 ' + (passEnd.line_pass_ms ?? '—') + ' ms' : '—');
+    const brake = first(L, r => inR(r.pattern, [[200, 310], [500, 610]]) && (r.brake === 1 || r.motor_l < 0 || r.motor_r < 0));
+    add('ブレーキを始めた（中央線の切れ目の手前）', brake ? when(L, brake) + '、' + v(brake) + '、距離 ' + d(brake) : 'なし');
+    const cut = first(L, r => inR(r.pattern, [[320, 470], [620, 770]]));
+    const prev = cut ? L.rows[L.rows.indexOf(cut) - 1] : null;
+    add('中央線の切れ目を見つけた', cut ? when(L, cut) + '、' + v(cut) + '、距離 ' + d(prev) + '（見つける直前の行）　' + ptName(cut.pattern) : 'なし');
+    add('計画', 'lane_entry_mps ' + num(p.lane_entry_mps, 2, ' m/s') + '　lane_to_m ' + num(p.lane_to_m, 3, ' m') +
+      '　ハンドル ' + num(p.plan_angle, 1, '°') + '　lane_end_m ' + num(p.lane_end_m, 3) + '　lane_cross_m ' + num(p.lane_cross_m, 3));
+    const back = first(L, r => r.pattern === 470 || r.pattern === 770);
+    if (back) add('新しい線を見つけて向きを戻し始めた', when(L, back) + '、向き ' + num(back.yaw_deg10 / 10, 1, '°') + '、' + v(back));
+    const yaw = maxAbs(ev, 'yaw_deg10', 0.1);
+    if (yaw && yaw.val) add('向きの変化の最大', num(Math.abs(yaw.val), 1, '°') + '　' + rel(L, yaw.r) + ' ms');
+  } else if (m.target === 4) {
+    const reg = ev.filter(r => r.chg !== 1);
+    const avg = reg.length ? reg.reduce((s, r) => s + r.speed_mm_s, 0) / reg.length / 1000 : NaN;
+    const low = ev.reduce((a, r) => !a || r.speed_mm_s < a.speed_mm_s ? r : a, null);
+    add('区間の平均の速さ・一番遅い所', num(avg, 2, ' m/s') + '　' + v(low) + '（' + rel(L, low) + ' ms）');
+    const sv = maxAbs(ev, 'servo_deg10', 0.1);
+    if (sv) add('サーボの角度の最大', num(Math.abs(sv.val), 1, '°') + '　' + rel(L, sv.r) + ' ms');
+  }
+  if (L.cols.includes('line_mm')) {
+    const lm = maxAbs(ev.filter(r => r.pattern < 100), 'line_mm', 1);
+    if (lm && lm.val) add('通常走行の間の線の横のずれの最大（推定）', Math.abs(lm.val) + ' mm　' + rel(L, lm.r) + ' ms');
+  }
+  add('はみ出し・停止', out1 ? when(L, out1) + '　' + ptName(out1.pattern) : 'なし');
+  if (L.end) {
+    const back = L.rows.find(r => r.ms >= L.end);
+    add('区間を出た時', (L.end - L.trig) + ' ms、' + v(back) + (back ? '　' + ptName(back.pattern) : ''));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 表示
+// ---------------------------------------------------------------------------
+function render() {
+  $('files').innerHTML = logs.map((L, i) => `<div class="file"><span class="sw" style="background:var(${COLORS[i]})"></span>
+    <b>${esc(L.name)}</b><span class="sub">${esc(TARGETS[L.meta.target] || '')} ${L.rows.length} 行、${L.rows[0].ms - L.trig}〜${L.rows.at(-1).ms - L.trig} ms</span>
+    <button data-i="${i}" title="閉じる">×</button></div>`).join('');
+  document.querySelectorAll('#files button').forEach(b => b.onclick = () => { logs.splice(+b.dataset.i, 1); view = null; render(); });
+  $('out').classList.toggle('hidden', !logs.length);
+  if (!logs.length) return;
+
+  // 要点の表
+  const sums = logs.map(summary);
+  const keys = [];
+  sums.forEach(s => s.forEach(([k]) => { if (!keys.includes(k)) keys.push(k); }));
+  $('summary').innerHTML = (logs.length > 1 ? '<tr><th></th>' + logs.map((L, i) => `<th><span class="sw" style="background:var(${COLORS[i]})"></span> ${esc(L.name)}</th>`).join('') + '</tr>' : '') +
+    keys.map(k => '<tr><td class="k">' + esc(k) + '</td>' + sums.map(s => { const e = s.find(x => x[0] === k); return '<td>' + esc(e ? e[1] : '—') + '</td>'; }).join('') + '</tr>').join('');
+
+  // pattern の流れ
+  const sel = $('ptFile');
+  const keep = Math.min(+sel.value || 0, logs.length - 1);
+  sel.innerHTML = logs.map((L, i) => `<option value="${i}">${esc(L.name)}</option>`).join('');
+  sel.value = keep;
+  renderPatterns();
+
+  // 設定
+  const names = [];
+  logs.forEach(L => Object.keys(L.params).forEach(k => { if (!names.includes(k)) names.push(k); }));
+  const swn = [];
+  logs.forEach(L => Object.keys(L.sw).forEach(k => { if (!swn.includes(k)) swn.push(k); }));
+  const diff = vals => vals.some(x => x !== vals[0]) ? ' style="color:var(--c1);font-weight:600"' : '';
+  $('params').innerHTML = '<tr><th>名前</th>' + logs.map(L => '<th>' + esc(L.name) + '</th>').join('') + '</tr>' +
+    swn.map(k => { const vals = logs.map(L => L.sw[k]); return `<tr${diff(vals)}><td class="k">USE_NEW_${esc(k)}</td>` + vals.map(x => `<td class="n">${x ?? '—'}</td>`).join('') + '</tr>'; }).join('') +
+    names.map(k => { const vals = logs.map(L => L.params[k]); return `<tr${diff(vals)}><td class="k">${esc(k)}</td>` + vals.map(x => `<td class="n">${Number.isFinite(x) ? x : '—'}</td>`).join('') + '</tr>'; }).join('');
+
+  if (!view) setView('event');
+  else drawCharts();
+}
+$('ptFile').onchange = renderPatterns;
+function renderPatterns() {
+  const L = logs[+$('ptFile').value || 0];
+  if (!L) return;
+  const segs = [];
+  L.rows.forEach((r, i) => {
+    const s = segs.at(-1);
+    if (!s || s.p !== r.pattern) segs.push({ p: r.pattern, a: r, b: r, gap: r.gap });
+    else s.b = r;
+  });
+  $('ptTable').innerHTML = '<tr><th>始め [ms]</th><th>長さ [ms]</th><th>pattern</th><th>速さ 始め→終わり</th><th>距離 始め→終わり</th><th>モータ 左/右（始め）</th><th>ハンドル指令（始め）</th><th>センサ（始め）</th></tr>' +
+    segs.map((s, i) => {
+      const next = segs[i + 1];
+      const len = (next ? next.a.ms : s.b.ms) - s.a.ms;
+      return `<tr><td class="n">${s.a.ms - L.trig}${exact(L, s.a) ? '' : '<span class="sub">（〜' + s.gap + '）</span>'}</td><td class="n">${len}</td><td>${s.p} ${esc(ptName(s.p))}</td>
+        <td class="n">${(s.a.speed_mm_s / 1000).toFixed(2)} → ${(s.b.speed_mm_s / 1000).toFixed(2)}</td>
+        <td class="n">${(s.a.dist_mm / 1000).toFixed(3)} → ${(s.b.dist_mm / 1000).toFixed(3)}</td>
+        <td class="n">${s.a.motor_l} / ${s.a.motor_r}</td><td class="n">${(s.a.steer_deg10 / 10).toFixed(1)}°</td><td class="n">${s.a.sensor}</td></tr>`;
+    }).join('');
+}
+
+function setView(kind) {
+  let a = Infinity, b = -Infinity;
+  for (const L of logs) {
+    if (kind === 'event') {
+      a = Math.min(a, -30);
+      const e = L.end ? L.end - L.trig + 60 : L.rows.at(-1).ms - L.trig;
+      b = Math.max(b, Math.min(e, L.rows.at(-1).ms - L.trig));
+    } else {
+      a = Math.min(a, L.rows[0].ms - L.trig);
+      b = Math.max(b, L.rows.at(-1).ms - L.trig);
+    }
+  }
+  if (!(b > a)) b = a + 100;
+  view = { from: Math.round(a), to: Math.round(b) };
+  $('from').value = view.from; $('to').value = view.to;
+  drawCharts();
+}
+$('vEvent').onclick = () => setView('event');
+$('vAll').onclick = () => setView('all');
+for (const id of ['from', 'to']) $(id).onchange = () => {
+  const a = Number($('from').value), b = Number($('to').value);
+  if (Number.isFinite(a) && Number.isFinite(b) && b > a) { view = { from: a, to: b }; drawCharts(); }
+};
+window.addEventListener('resize', () => { if (logs.length) drawCharts(); });
+
+// グラフの定義：値を取る関数・線の種類・段（step）か線（line）か
+const CHARTS = [
+  { title: '速さ [m/s]（実線：推定した速さ、点線：出力100%の速さ）', h: 150, series: [
+    { f: r => r.speed_mm_s / 1000, dash: '' }, { f: r => r.vmax_mm_s / 1000, dash: '2 3', w: 1 }] },
+  { title: 'モータ出力 [%]（実線：左、破線：右。マイナスはブレーキ）', h: 120, step: true, fixed: [-100, 100], series: [
+    { f: r => r.motor_l, dash: '' }, { f: r => r.motor_r, dash: '6 3' }] },
+  { title: 'ハンドル [度]（段：指令、実線：サーボの本当の角度の推定。プラスが右）', h: 130, series: [
+    { f: r => r.steer_deg10 / 10, dash: '', step: true, w: 1 }, { f: r => r.servo_deg10 / 10, dash: '' }] },
+  { title: '向きの変化 [度]（クランク・レーンチェンジで曲がり始めてから）', h: 110, need: 'yaw_deg10', series: [
+    { f: r => r.yaw_deg10 / 10, dash: '' }] },
+  { title: '横の加速度 [m/s²]（速さ² × 車が曲がっている曲率の推定。プラスが右）', h: 110, need: 'lat_cm_s2', series: [
+    { f: r => r.lat_cm_s2 / 100, dash: '' }] },
+  { title: '線の横の位置の推定 [mm]（通常走行の間。プラスが右）', h: 100, need: 'line_mm', series: [
+    { f: r => r.line_mm, dash: '', step: true }] },
+];
+
+function drawCharts() {
+  const box = $('charts');
+  const W = Math.max(320, box.clientWidth || 800);
+  const padL = 46, padR = 10;
+  const x0 = view.from, x1 = view.to;
+  const X = t => padL + (t - x0) / (x1 - x0) * (W - padL - padR);
+  const inView = (L) => L.rows.filter((r, i, a) => {
+    const t = r.ms - L.trig;
+    const tn = i + 1 < a.length ? a[i + 1].ms - L.trig : t;
+    const tp = i > 0 ? a[i - 1].ms - L.trig : t;
+    return tn >= x0 && tp <= x1;
+  });
+  const vis = logs.map(inView);
+  let html = '';
+  // 時間の目盛り
+  const span = x1 - x0;
+  const stepT = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find(s => span / s <= 10) || 20000;
+  const ticks = [];
+  for (let t = Math.ceil(x0 / stepT) * stepT; t <= x1; t += stepT) ticks.push(t);
+  const grid = h => ticks.map(t => `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${h}" stroke="var(--grid)"/>`).join('') +
+    (x0 <= 0 && x1 >= 0 ? `<line x1="${X(0)}" x2="${X(0)}" y1="0" y2="${h}" stroke="var(--sub)" stroke-dasharray="3 3"/>` : '') +
+    logs.map((L, i) => L.end && L.end - L.trig >= x0 && L.end - L.trig <= x1 ? `<line x1="${X(L.end - L.trig)}" x2="${X(L.end - L.trig)}" y1="0" y2="${h}" stroke="var(${COLORS[i]})" stroke-dasharray="1 3"/>` : '').join('');
+
+  // pattern の帯とセンサ（ファイルごと）
+  logs.forEach((L, li) => {
+    const rows = vis[li];
+    if (!rows.length) return;
+    const H = 14 + 8 * 7 + 8;
+    let s = `<svg viewBox="0 0 ${W} ${H}" height="${H}" data-k="sen" data-l="${li}">` + grid(H);
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i], tn = (i + 1 < rows.length ? rows[i + 1].ms : r.ms + 1) - L.trig;
+      const a = Math.max(X(r.ms - L.trig), padL), b = Math.min(X(tn), W - padR);
+      if (b <= a) continue;
+      s += `<rect x="${a}" y="0" width="${b - a}" height="12" fill="hsl(${ptHue(r.pattern)} 60% 55% / .55)"/>`;
+      for (let k = 0; k < 8; k++) if (r.sensor[k] === '1') s += `<rect x="${a}" y="${14 + k * 8}" width="${b - a}" height="7" fill="var(--sen)"/>`;
+    }
+    // pattern の番号（幅が足りる所だけ）
+    let lastX = -1e9;
+    rows.forEach((r, i) => {
+      if (i && rows[i - 1].pattern === r.pattern) return;
+      const x = X(r.ms - L.trig);
+      if (x < padL || x - lastX < 28) return;
+      s += `<text x="${x + 2}" y="10">${r.pattern}</text>`;
+      lastX = x;
+    });
+    s += `<text x="2" y="10">ptn</text><text x="2" y="${14 + 8 * 4}">センサ</text>`;
+    // 変化した瞬間の行の印
+    rows.forEach(r => { if (r.chg === 1) { const x = X(r.ms - L.trig); if (x >= padL) s += `<line x1="${x}" x2="${x}" y1="${H - 6}" y2="${H}" stroke="var(${COLORS[li]})"/>`; } });
+    s += '</svg>';
+    html += `<div class="chart"><p class="title"><span class="sw" style="background:var(${COLORS[li]});width:10px;height:10px"></span> ${esc(L.name)}：pattern（色の帯）・センサ 8 個（上が左端、黒が白線）・下の短い線が「変化した瞬間の行」</p>${s}</div>`;
+  });
+
+  for (const [ci, c] of CHARTS.entries()) {
+    if (c.need && !logs.some(L => L.cols.includes(c.need))) continue;
+    let lo = Infinity, hi = -Infinity;
+    logs.forEach((L, li) => vis[li].forEach(r => c.series.forEach(se => { const y = se.f(r); if (Number.isFinite(y)) { lo = Math.min(lo, y); hi = Math.max(hi, y); } })));
+    if (c.fixed) { lo = Math.min(lo, c.fixed[0]); hi = Math.max(hi, c.fixed[1]); }
+    if (!(hi > lo)) { lo = (Number.isFinite(lo) ? lo : 0) - 1; hi = lo + 2; }
+    const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+    const H = c.h, Y = y => 4 + (hi - y) / (hi - lo) * (H - 18);
+    let s = `<svg viewBox="0 0 ${W} ${H}" height="${H}" data-k="${ci}">` + grid(H - 14);
+    // 縦の目盛り
+    const vs = [1, 2, 5].flatMap(m => [0.01, 0.1, 1, 10, 100].map(e => m * e)).sort((a, b) => a - b).find(st => (hi - lo) / st <= 5) || 100;
+    for (let y = Math.ceil(lo / vs) * vs; y <= hi; y += vs) {
+      s += `<line x1="${padL}" x2="${W - padR}" y1="${Y(y)}" y2="${Y(y)}" stroke="var(--grid)"/><text x="${padL - 4}" y="${Y(y) + 4}" text-anchor="end">${+y.toFixed(2)}</text>`;
+    }
+    if (lo < 0 && hi > 0) s += `<line x1="${padL}" x2="${W - padR}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--sub)" stroke-width=".6"/>`;
+    logs.forEach((L, li) => {
+      const rows = vis[li];
+      c.series.forEach(se => {
+        let dpath = '';
+        rows.forEach((r, i) => {
+          const y = se.f(r);
+          if (!Number.isFinite(y)) return;
+          const x = X(r.ms - L.trig), yy = Y(y);
+          if (!dpath) dpath = `M${x.toFixed(1)},${yy.toFixed(1)}`;
+          else if (se.step || c.step) dpath += `H${x.toFixed(1)}V${yy.toFixed(1)}`;
+          else dpath += `L${x.toFixed(1)},${yy.toFixed(1)}`;
+        });
+        if (dpath) s += `<path d="${dpath}" fill="none" stroke="var(${COLORS[li]})" stroke-width="${se.w || 1.6}" stroke-dasharray="${se.dash}" stroke-linejoin="round"/>`;
+      });
+    });
+    ticks.forEach(t => { s += `<text x="${X(t)}" y="${H - 2}" text-anchor="middle">${t}</text>`; });
+    s += `<rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" class="hit"/></svg>`;
+    html += `<div class="chart"><p class="title">${esc(c.title)}</p>${s}</div>`;
+  }
+  box.innerHTML = html;
+  // 値を出す・ドラッグで拡大
+  box.querySelectorAll('svg').forEach(svg => {
+    let dragA = null, band = null;
+    const tAt = ev => {
+      const rc = svg.getBoundingClientRect();
+      const px = (ev.clientX - rc.left) / rc.width * W;
+      return x0 + (px - padL) / (W - padL - padR) * (x1 - x0);
+    };
+    svg.addEventListener('pointermove', ev => {
+      const t = tAt(ev);
+      showTip(ev, t);
+      if (dragA !== null) {
+        const a = Math.min(dragA, t), b = Math.max(dragA, t);
+        if (!band) { band = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); band.setAttribute('fill', 'rgba(37,99,235,.15)'); svg.appendChild(band); }
+        band.setAttribute('x', X(a)); band.setAttribute('width', Math.max(0, X(b) - X(a))); band.setAttribute('y', 0); band.setAttribute('height', svg.viewBox.baseVal.height);
+      }
+    });
+    svg.addEventListener('pointerleave', () => { $('tip').style.display = 'none'; });
+    svg.addEventListener('pointerdown', ev => { if (ev.pointerType === 'mouse') { dragA = tAt(ev); svg.setPointerCapture(ev.pointerId); } });
+    svg.addEventListener('pointerup', ev => {
+      if (dragA === null) return;
+      const t = tAt(ev), a = Math.min(dragA, t), b = Math.max(dragA, t);
+      dragA = null;
+      if (b - a >= 3) { view = { from: Math.round(a), to: Math.round(b) }; $('from').value = view.from; $('to').value = view.to; drawCharts(); }
+      else if (band) { band.remove(); band = null; }
+    });
+  });
+}
+
+function showTip(ev, t) {
+  const lines = [];
+  logs.forEach((L, i) => {
+    // その時刻の値（その時刻以前の一番新しい行）
+    let r = null;
+    for (const x of L.rows) { if (x.ms - L.trig <= t) r = x; else break; }
+    if (!r) return;
+    lines.push((logs.length > 1 ? '[' + (i + 1) + '] ' : '') + (r.ms - L.trig) + ' ms' + (r.chg === 1 ? '（変化した瞬間）' : '') + '  ptn ' + r.pattern + ' ' + ptName(r.pattern));
+    lines.push('  センサ ' + r.sensor + '  モータ ' + r.motor_l + '/' + r.motor_r + '  指令 ' + (r.steer_deg10 / 10).toFixed(1) + '°  サーボ ' + (r.servo_deg10 / 10).toFixed(1) + '°');
+    lines.push('  速さ ' + (r.speed_mm_s / 1000).toFixed(3) + ' m/s  距離 ' + (r.dist_mm / 1000).toFixed(3) + ' m  向き ' + ((r.yaw_deg10 || 0) / 10).toFixed(1) + '°' +
+      (Number.isFinite(r.lat_cm_s2) ? '  横G ' + (r.lat_cm_s2 / 100).toFixed(2) + ' m/s²' : '') + (Number.isFinite(r.line_mm) ? '  線 ' + r.line_mm + ' mm' : ''));
+    lines.push('  ブレーキ ' + r.brake + '  通過時間 ' + r.line_pass_ms + ' ms' + (r.unwind ? '  戻し中' : '') + (r.measuring ? '  曲がり角の線を測定中' : ''));
+  });
+  const tip = $('tip');
+  if (!lines.length) { tip.style.display = 'none'; return; }
+  tip.textContent = lines.join('\n');
+  tip.style.display = 'block';
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + w > innerWidth - 4) x = Math.max(4, ev.clientX - w - 14);
+  if (y + h > innerHeight - 4) y = Math.max(4, ev.clientY - h - 14);
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+</script>
+</body>
+</html>

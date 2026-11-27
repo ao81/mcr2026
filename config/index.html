@@ -184,6 +184,7 @@ label.chk { font-size: 13px; display: inline-flex; gap: 4px; align-items: center
     <p id="singleHint"></p>
     <label id="singleUpload">専用CSVで自動調整 <input type="file" id="readLog" accept=".csv,text/csv"></label>
     <output id="tuneResult" aria-live="polite"></output>
+    <p>同じ CSV のグラフと要点（ブレーキを始めた所、曲がり角の線を見つけた所などを 1ms 単位で）は <a href="../log/" target="_blank" rel="noopener">詳細ログを見る</a> で見られます。</p>
   </section>
   <section class="tune-box" id="comparePanel" hidden><h2>タイム比較</h2>
     <p>比較を開始し、上部の「保存」で設定を反映してから <code>debug/debug.ino</code> を書き込みます。同じスタート位置から指定区間を3回走らせます。</p>
@@ -974,7 +975,8 @@ function parseDebugCsv(csv) {
     if (cells.length !== cols.length) fail('CSVの列数が一致しません');
     const row = Object.fromEntries(cols.map((k,i) => [k, Number(cells[i].replace(/^'/,''))]));
     if (cells.some(x => !x.trim()) || Object.values(row).some(x => !Number.isFinite(x))) fail('数値の壊れたログです');
-    if (rows.length && row.ms - rows[rows.length-1].ms !== meta.interval_ms) fail('ログの時系列が連続していません');
+    // 決まった間隔の行のほかに、変化した瞬間の行（chg=1）が入るので、行の間隔は interval_ms 以下で一定ではない
+    if (rows.length && !(row.ms > rows[rows.length-1].ms && row.ms - rows[rows.length-1].ms <= meta.interval_ms)) fail('ログの時系列が連続していません');
     rows.push(row);
   }
   if (!completed || meta.dbg !== 1 || !rows.length || !Number.isInteger(meta.interval_ms) || meta.interval_ms < 1) fail('詳細CSVの書き出し完了を確認できません');
@@ -1024,12 +1026,14 @@ function tuneLog(csv, cfg, selection) {
     if (!(wheelbase > 0 && limit > 0 && old > 0 && old <= 100)) fail('車体の設定を確認してください');
     // サーボの推定角度は、センサの段差で数十msごとに行き来する。車の向きはその揺れにはついていけないので、
     // 曲率を 50ms でならしてから横の加速度にする（揺れの山を横すべりと見間違えない）
+    // 変化した瞬間の行（chg=1）は間隔がそろっていないので除き、決まった間隔の行だけで数える
+    const reg = event.filter(r => r.chg !== 1);
     const win = Math.max(1, Math.round(50 / iv));
-    const curv = event.map(r => Math.tan(r.servo_deg10 * Math.PI / 1800) / wheelbase);
+    const curv = reg.map(r => Math.tan(r.servo_deg10 * Math.PI / 1800) / wheelbase);
     const loads = [];
-    event.forEach((r, i) => {
+    reg.forEach((r, i) => {
       if (Math.abs(r.steer_deg10) < 50 || Math.max(r.motor_l, r.motor_r) <= 0) return;
-      const a = Math.max(0, i - (win >> 1)), b = Math.min(event.length, a + win);
+      const a = Math.max(0, i - (win >> 1)), b = Math.min(reg.length, a + win);
       let k = 0; for (let j = a; j < b; j++) k += curv[j]; k /= (b - a);
       loads.push((r.speed_mm_s / 1000) ** 2 * Math.abs(k));
     });
@@ -1076,7 +1080,10 @@ function tuneLog(csv, cfg, selection) {
   if (!pre || !inRange(pre.pattern, PRE)) fail('線を見つける直前のログがありません');
   const seenEarly = crank ? (cfgOr('CENTER_LINE_WIDTH_M', 0.02) + cfgOr('LINE_SEEN_EXTRA_M', 0)) / 2 : 0;
   const expect = toM - seenEarly;                       // 線の終わりから、センサが曲がり角の線を見つけるまでの本当の距離
-  const dEst = pre.dist_mm / 1000 + pre.speed_mm_s / 1000 * iv / 2000;
+  // 見つけた行と直前の行の間のどこかで見つけたので、間隔の半分を足す。
+  // 変化した瞬間の行を足しているログ（chg 列があり change_rows 1）では、見つけた行の時刻がちょうどその ms なので、間隔の分を全部足す
+  const gapMs = event[ti].ms - pre.ms;
+  const dEst = pre.dist_mm / 1000 + pre.speed_mm_s / 1000 * gapMs / (meta.change_rows === 1 && 'chg' in event[ti] ? 1000 : 2000);
   let rd = expect / dEst;                               // 距離の比 = その間の速さの推定の比（本当 ÷ 推定）
   if (!(dEst > 0.1 && rd > 0.75 && rd < 1.33)) { notes.push('線を見つけた距離が表の値と大きく違うので、距離の照合を使いませんでした（COURSE_LIST の距離・順番を確認）'); rd = null; }
   // クランク（USE_NEW_CRANK_QUICK）：曲がり角の線を通過した時間で速さを測り直している（measuring が 1 → 0）
