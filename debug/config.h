@@ -117,7 +117,7 @@ const int LANE_RAMP[LANE_STEPS] = {
 //   ★の付いた数値は、車体やコースに合わせて測った値を入れる
 //************************************************************************
 #define USE_NEW_TRACTION        0   // 加速の出力を、タイヤが空回りしない範囲に制限する
-#define USE_NEW_TRACE_SPEED     0   // 通常走行(20〜25)の速さを、ハンドル角度から決まる「曲がれる上限の速さ」にする
+#define USE_NEW_TRACE_SPEED     1   // 通常走行(20〜25)の速さを、ハンドル角度から決まる「曲がれる上限の速さ」にする
 #define USE_NEW_CURVE_SPEED     0   // 大曲がり(30〜45)の速さも、同じ方法で決める
 #define USE_NEW_STEER           1   // 通常走行(20〜25)のハンドル角度を、線の位置から計算する（ピュアパシュート）
 #define USE_NEW_CRANK_BRAKE     1   // クランク手前の減速を、速さと残りの距離から計算する（USE_NEW_CRANK_TURN が 0 なら CRANK_ENTRY_MPS も入れる）
@@ -127,7 +127,7 @@ const int LANE_RAMP[LANE_STEPS] = {
 #define USE_NEW_LANE_STEER      1   // レーンチェンジを、同じ半径の円弧2つをつないだ最も緩い経路で行う
 #define USE_NEW_VMAX_LEARN      0   // ラインの通過で測った速さから、出力100%のときの速さ（電池の電圧で変わる）を走りながら直す（ラインの幅を合わせてから使う）
 #define USE_NEW_LINE_SHAPE      1   // センサと自分のハンドル角度から線の位置・向き・曲がり具合を推定し、サーボの遅れの分だけ先の状態でハンドルを切る（USE_NEW_STEER と一緒に使う）
-#define USE_NEW_CURVE_PREVIEW   0   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
+#define USE_NEW_CURVE_PREVIEW   1   // 推定した線の曲がり具合（センサの所 = 後輪より前）で速さを決め、カーブの入口では早めに減速し、出口ではハンドルが戻るのに合わせて加速する（USE_NEW_TRACE_SPEED と一緒に使う）
 #define USE_NEW_CRANK_QUICK     0   // クランクを、手前で少しだけ減速し、ハンドルを大きく切って短い時間で90°曲がり、曲がり終わる前にハンドルを戻し始める（USE_NEW_CRANK_TURN・USE_NEW_CRANK_BRAKE と一緒に使う）
 #define USE_NEW_BRAKE_RANGE     0   // クランク・レーンチェンジ手前の減速に、ラインを見つけた瞬間から本当に曲がり始める所までの距離を全部使う（*_BRAKE を 1 にしている方だけ変わる）
 
