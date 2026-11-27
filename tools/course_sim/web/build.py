@@ -139,6 +139,10 @@ def main():
     page = page.replace("// __BUILD_DATA__", data.replace("</", "<\\/"), 1)
     with open(OUT, "w", encoding="utf-8") as f:
         f.write(page)
+    if os.environ.get("SIM_JSON"):
+        # tools/local_site.py が、GitHub Pages のシミュレータへ手元の版を渡すために使う
+        with open(os.environ["SIM_JSON"], "w", encoding="utf-8") as f:
+            json.dump({"wasm": wasm_b64, "items": items, "build": info}, f, ensure_ascii=False)
     print("書き出しました: %s（%d KB、設定項目 %d）" % (OUT, len(page) // 1024, len(items)))
 
 

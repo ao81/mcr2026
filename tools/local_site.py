@@ -14,6 +14,8 @@ Python 3 標準ライブラリのみ。WSL の ~/mcr2026 で
     clang が無い・コンパイルに失敗した時は、GitHub の走行プログラムに手元の config.h の値を初期値として入れて開く
     （画面の上に理由を出す）。
   ・詳細ログ（/log/）と選択ページ：ページは public ブランチのものをそのまま使う（CSV はページで選ぶ）。
+  ・GitHub Pages のシミュレータ（https://ao81.github.io/mcr2026/simulator/）の「手元のファイル」→「手元のサーバから読む」も、
+    このサーバの /api/sim から手元の版を読む（このサーバを動かしている間だけ）。
 ページの HTML は、起動時に git fetch した origin/public から読む（読めなければ GitHub から取ってくる）。
 """
 import argparse
@@ -22,6 +24,7 @@ import html
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -94,7 +97,7 @@ def sources_hash():
     return digest.hexdigest()
 
 
-SIM = {"hash": None, "page": None}
+SIM = {"hash": None}
 SIM_LOCK = threading.Lock()
 
 
@@ -128,33 +131,88 @@ def local_defaults_page(reason):
                   "手元の config.h の値を初期値として入れています。プログラムの変更は入っていません。", "\n".join(notes))
 
 
-def simulator_page():
+def build_sim():
+    """手元の basic/ からシミュレータを作る（変わっていなければ前に作ったものを使う）。SIM を返す"""
     with SIM_LOCK:
         h = sources_hash()
         if SIM["hash"] == h:
-            return SIM["page"]
+            return SIM
         print("シミュレータを手元の basic/ から作っています…", flush=True)
-        fd, out = tempfile.mkstemp(suffix=".html")
-        os.close(fd)
+        tmp = tempfile.mkdtemp()
+        out, js = os.path.join(tmp, "sim.html"), os.path.join(tmp, "sim.json")
+        result = {"hash": h, "ok": False, "html": None, "json": None, "error": ""}
         try:
-            env = dict(os.environ, SIM_OUT=out, SIM_LOCAL="1")
+            env = dict(os.environ, SIM_OUT=out, SIM_JSON=js, SIM_LOCAL="1")
             r = subprocess.run([sys.executable, str(BUILD_PY)], env=env, capture_output=True, text=True, timeout=600)
             if r.returncode == 0:
-                page = banner(Path(out).read_bytes(), "ローカル版：手元の basic/ の走行プログラムと config.h の値で作ったシミュレータです。"
-                              "basic/ を変えたら、このページを再読み込みすると作り直します。")
+                result.update(ok=True, html=Path(out).read_bytes(), json=json.loads(Path(js).read_text(encoding="utf-8")))
                 print("作りました", flush=True)
             else:
-                print(r.stdout + r.stderr, flush=True)
-                page = local_defaults_page("走行プログラムのビルドに失敗しました:\n" + (r.stdout + r.stderr).strip())
+                result["error"] = "走行プログラムのビルドに失敗しました:\n" + (r.stdout + r.stderr).strip()
+                print(result["error"], flush=True)
         except (OSError, subprocess.SubprocessError) as exc:
-            page = local_defaults_page("走行プログラムのビルドを実行できませんでした: %s" % exc)
+            result["error"] = "走行プログラムのビルドを実行できませんでした: %s" % exc
         finally:
-            Path(out).unlink(missing_ok=True)
-        SIM["hash"], SIM["page"] = h, page
-        return page
+            shutil.rmtree(tmp, ignore_errors=True)
+        SIM.clear()
+        SIM.update(result)
+        return SIM
+
+
+def simulator_page():
+    sim = build_sim()
+    if sim["ok"]:
+        return banner(sim["html"], "ローカル版：手元の basic/ の走行プログラムと config.h の値で作ったシミュレータです。"
+                      "basic/ を変えたら、このページを再読み込みすると作り直します。")
+    return local_defaults_page(sim["error"])
+
+
+# GitHub Pages のシミュレータ（「手元のファイル」→「手元のサーバから読む」）から読めるようにする
+PAGES_ORIGIN = "https://ao81.github.io"
 
 
 class Site(ce.Editor):
+    def cors(self):
+        """GitHub Pages のページからの読み込みだけ許す"""
+        if self.headers.get("Origin") != PAGES_ORIGIN:
+            return False
+        self.send_header("Access-Control-Allow-Origin", PAGES_ORIGIN)
+        self.send_header("Vary", "Origin")
+        return True
+
+    def do_OPTIONS(self):
+        if self.path.split("?")[0] != "/api/sim" or not self.allowed() or self.headers.get("Origin") != PAGES_ORIGIN:
+            return self.reply(403, {})
+        self.send_response(204)
+        self.cors()
+        self.send_header("Access-Control-Allow-Methods", "GET")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.end_headers()
+
+    def api_sim(self):
+        """手元の版の走行プログラム（WebAssembly）と設定項目を JSON で返す。have が今の版と同じなら same だけ"""
+        have = ""
+        m = re.search(r"[?&]have=([0-9a-f]*)", self.path)
+        if m:
+            have = m.group(1)
+        if have and have == sources_hash():
+            body = {"same": True}
+            status = 200
+        else:
+            sim = build_sim()
+            if sim["ok"]:
+                body, status = dict(sim["json"], hash=sim["hash"]), 200
+            else:
+                body, status = {"error": "手元の basic/ から走行プログラムを作れませんでした", "detail": sim["error"][-6000:]}, 422
+        data = json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.cors()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         host = self.headers.get("Host", "")
         if host == "localhost:%d" % self.server.server_port:
@@ -173,6 +231,8 @@ class Site(ce.Editor):
             return
         if path == "/api/config":
             return super().do_GET()
+        if path == "/api/sim":
+            return self.api_sim()
         if path in ("/simulator/", "/simulator/index.html"):
             try:
                 return self.reply(200, simulator_page(), "text/html")
@@ -198,7 +258,7 @@ if __name__ == "__main__":
     print("使うフォルダ: %s" % ROOT, flush=True)
     with ThreadingHTTPServer(("127.0.0.1", args.port), Site) as server:
         print(f"ブラウザで開く: http://127.0.0.1:{server.server_port}/  （止めるときは Ctrl+C）", flush=True)
-        threading.Thread(target=simulator_page, daemon=True).start()  # 先に作っておく
+        threading.Thread(target=build_sim, daemon=True).start()  # 先に作っておく
         try:
             server.serve_forever()
         except KeyboardInterrupt:
