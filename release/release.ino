@@ -92,6 +92,7 @@ void ha( int angle );
 void set_microSD_dateTime( uint16_t* date, uint16_t* time );
 void newcrank( void );                  // クランク時の減速処理宣言
 void shasenhenkou( void );              // 車線変更時の減速処理宣言
+bool right_shift_left_steer( void );    // 右寄せ走行中、車体が中央線より左にいる時の処理
 unsigned long convertBCD_CharToLong( unsigned char hex );
 int getCompileYear( const char *p );
 int getCompileMonth( const char *p );
@@ -108,6 +109,10 @@ volatile int kyori_flug;                // 各ラインの通過検出宣言
 volatile int kyoritime;                 // 各ラインの通過時間宣言
 volatile int f_setup_end;
 volatile int pattern;
+// 右寄せ走行（パターン300～310）での、元のレーンの中央線に対する車体の位置
+enum RightShiftSide { SHIFT_ON_OR_RIGHT, SHIFT_LEFT, SHIFT_FAR_LEFT };
+volatile RightShiftSide right_shift_side;
+volatile unsigned char right_shift_last;   // 最後に白が見えたセンサの形
 volatile unsigned long cnt0;
 volatile unsigned long cnt1;
 volatile unsigned long daturin_cnt;     // 脱輪確認タイマ用
@@ -1247,6 +1252,8 @@ switch( pattern ) {
           if( check_crossline() )     {cnt1 = 0;pattern = 100;break;} /* クロスライン再確認      */
 
 		  	  kyori_flug = 0;
+          right_shift_side = SHIFT_ON_OR_RIGHT;  /* 右寄せ走行の位置判定を初期化 */
+          right_shift_last = 0x18;
 	        shasenhenkou();
 		       	     if( kyoritime <=  12 ){pattern = 300;break;
 		  	  } else if( kyoritime <=  15 ){pattern = 301;break;
@@ -1280,6 +1287,7 @@ switch( pattern ) {
 
  case 300:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		      shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		      if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1312,6 +1320,7 @@ switch( pattern ) {
 
  case 301:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		      shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		      if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1344,6 +1353,7 @@ switch( pattern ) {
 
  case 302:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1376,6 +1386,7 @@ switch( pattern ) {
 
  case 303:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1408,6 +1419,7 @@ switch( pattern ) {
 
  case 304:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1440,6 +1452,7 @@ switch( pattern ) {
 
  case 305:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1472,6 +1485,7 @@ switch( pattern ) {
 
  case 306:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1504,6 +1518,7 @@ switch( pattern ) {
 
  case 307:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1536,6 +1551,7 @@ switch( pattern ) {
 
  case 308:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1568,6 +1584,7 @@ switch( pattern ) {
 
  case 309:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -1600,6 +1617,7 @@ switch( pattern ) {
 
  case 310:                      /* 右車線変更前の車体の右寄せ走行処理 */
 		  	  shasenhenkou();
+          if( right_shift_left_steer() ) break; /* 車体が中央線より左：右へ戻す */
 		  	  if( cnt1 > 50 ) {
           c = sensor_inp( MASK4_4 );
           if( c == 0x00 ){   /* 右車線変更開始の判断 → 車線変更の開始 */
@@ -5652,6 +5670,69 @@ void shasenhenkou( void )
          if(cnt1 < 390 ){sp(  100 ,  100 );}
                    else {sp(   95 ,   95 );}
     }
+}
+
+//**********************************************************************
+// 右寄せ走行（パターン300～310）で、車体が元のレーンの中央線より左にいる時の処理
+// 右寄せの表は「中央線が中央か左に見える（車体が線より右）」ことが前提で、
+// 0x03・0x83・0x81・0xc1 を「中央線が左端、右の路肩が右端」と読んで左へ切る。
+// 車体が線より左にいる時は、同じ形が「中央線が右端、左の路肩が左端」なので、
+// 左へ切るとさらに左へ出て、左の路肩を中央線として追い、コースの外の黒を切れ目と判断していた（LOG0110・LOG0119）。
+// 戻り値 true:この関数でハンドルを決めた（表と切れ目の判断は使わない） false:従来の処理を使う
+//**********************************************************************
+bool right_shift_left_steer( void )
+{
+  unsigned char s = sensor_inp( MASK4_4 );
+  bool use_old = false;
+
+  switch( right_shift_side ) {
+    case SHIFT_ON_OR_RIGHT:
+      /* 中央より右の範囲だけに白 → 車体は線より左。直前が端の白（右の路肩が入ってきた時）は除く */
+      if( (s & 0xf0) == 0 && (s & 0x0c) != 0 && (right_shift_last & 0x81) == 0 ) {
+          right_shift_side = SHIFT_LEFT;
+      } else {
+          use_old = true;
+      }
+      break;
+
+    case SHIFT_LEFT:
+      if( s == 0x00 ) {
+          if( right_shift_last & 0x03 ) {
+              right_shift_side = SHIFT_FAR_LEFT;   /* 中央線が右端から外れた */
+          } else {
+              use_old = true;                      /* 中央付近で消えた → 中央線の切れ目 */
+          }
+      } else if( (s & 0x10) != 0 && (s & 0x80) == 0 ) {
+          right_shift_side = SHIFT_ON_OR_RIGHT;    /* 中央線が中央に戻った */
+          use_old = true;
+      } else if( (s & 0x80) != 0 && (s & 0x0f) == 0 ) {
+          right_shift_side = SHIFT_FAR_LEFT;       /* 左の路肩だけが見える */
+      }
+      break;
+
+    case SHIFT_FAR_LEFT:
+      if( (s & 0x01) != 0 && (s & 0x80) == 0 ) {
+          right_shift_side = SHIFT_LEFT;           /* 中央線が右端に戻ってきた */
+      }
+      break;
+  }
+  if( s != 0x00 ) right_shift_last = s;
+  if( use_old ) return false;
+
+  if( right_shift_side == SHIFT_FAR_LEFT ) {
+      ha( 24 );
+      return true;
+  }
+  switch( s ) {                                    /* 通常走行（パターン25）の右曲げと同じ角度 */
+    case 0x08: case 0x0c: ha(  7 ); break;
+    case 0x04: case 0x0e: ha( 12 ); break;
+    case 0x06:            ha( 16 ); break;
+    case 0x02: case 0x07: ha( 20 ); break;
+    case 0x01: case 0x03: case 0x81: case 0x83:
+    case 0xc1: case 0xc3: case 0x87: ha( 24 ); break; /* 中央線が右端、左に路肩 */
+    default: break;
+  }
+  return true;
 }
 
 //**********************************************************************
