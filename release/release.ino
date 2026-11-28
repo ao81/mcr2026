@@ -25,6 +25,8 @@ const char *C_TIME = __TIME__;          //                         コンパイ�
 
 // クロスライン通過時間15ms以下で、減速後に再加速する際の最終出力（DIP補正前）。
 const int CRANK_FAST_APPROACH_POWER = 83;
+// クロスライン通過が11ms以下の場合、通過後18～58msに使う初段の逆転出力。
+const int CRANK_FAST_PEAK_BRAKE = -32;
 
 // 右レーンチェンジ。時間は元のレーンの白線が途切れた時点から数える。
 const int RIGHT_LANE_TURN_DEG = 19;                 // 渡り始めの右舵
@@ -32,6 +34,11 @@ const int RIGHT_LANE_SEARCH_DEG = 10;               // 右レーンの中央線�
 const unsigned int RIGHT_LANE_FULL_TURN_MS = 220;   // 速度区分に応じて0～10msを加算
 const unsigned int RIGHT_LANE_SEARCH_LIMIT_MS = 450; // この時刻までに確認できなければ停止
 const unsigned int RIGHT_LANE_CENTER_CONFIRM_MS = 2; // 右内側の反応後、中央寄りに連続して白が見えた時間
+
+// 復帰中に両端の白が続いた場合にだけ、戻し舵と通常走行への移行を抑える。
+const unsigned int RIGHT_LANE_SPLIT_MS = 16;
+const int RIGHT_LANE_SPLIT_STEER_DEG = -12;
+const unsigned int RIGHT_LANE_SETTLE_MS = 20;
 
 // モータ、サーボのPWM関係
 #define PWM_CYCLE     32999             //  11ms/(1/HOCO*DIV16) = 0.011 /(1/48e6*16) = 33000
@@ -357,6 +364,10 @@ void AGTCallback( timer_callback_args_t __attribute((unused)) * p_args )
 {
   static bool right_lane_inner_seen;
   static unsigned int right_lane_center_ms;
+  enum RightLaneRecovery { LANE_RETURN, LANE_SPLIT_SEEN, LANE_CENTERING };
+  static RightLaneRecovery right_lane_recovery = LANE_RETURN;
+  static unsigned int right_lane_split_ms;
+  static unsigned int right_lane_settle_ms;
   static LogStopReason stop_reason = LOG_STOP_RUNNING;
   static int previous_sensor = -1;
   static int previous_decision_sensor = -1;
@@ -1619,6 +1630,7 @@ switch( pattern ) {
           // cnt1は白線が途切れた時点からの累積時間。初期旋回中もセンサーの順序を記憶する。
           const bool can_return = cnt1 >= RIGHT_LANE_FULL_TURN_MS + stage;
           if( cnt1 == 1 ) {
+              right_lane_recovery = LANE_RETURN;
               right_lane_inner_seen = false;
               right_lane_center_ms = 0;
           }
@@ -2033,357 +2045,79 @@ switch( pattern ) {
           }
           break;
   
- case 420:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
+ case 420: case 421: case 422: case 423: case 424: case 425:
+ case 426: case 427: case 428: case 429: case 430: {
+          const int stage = pattern - 420;
+          c = sensor_inp( MASK4_4 );
+          if( cnt1 == 1 ) {
+              right_lane_split_ms = 0;
+              right_lane_settle_ms = 0;
+          }
 
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   63 ,   81 );  
-		                        break;
-			        	  case 0x70:ha( -16 );
-				                    sp(   59 ,   78 );  
-		                        break;
-			        	  case 0x60:ha( -19 );
-				                    sp(   55 ,   75 );  
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   49 ,   70 );  
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   43 ,   65 );  
-		                        cnt1 = 0;
-                            pattern = 440;
-                            break;		  
-                    default:
-                            break;
+          // 両端が同時に白い間は、直前の左舵をいつまでも保持しない。
+          if( c == 0x81 || c == 0xc1 ) {
+              right_lane_settle_ms = 0;
+              if( right_lane_split_ms < RIGHT_LANE_SPLIT_MS ) ++right_lane_split_ms;
+              if( right_lane_split_ms == RIGHT_LANE_SPLIT_MS ) {
+                  right_lane_recovery = LANE_SPLIT_SEEN;
+                  ha( RIGHT_LANE_SPLIT_STEER_DEG );
+                  sp( 60 + stage, 70 + stage );
+              }
+              break;
+          }
+          right_lane_split_ms = 0;
+
+          const bool center = c == 0x18 || c == 0x38 || c == 0x1c || c == 0x3c;
+          const bool single_center = c == 0x10 || c == 0x08;
+          if( center || (right_lane_recovery != LANE_RETURN && single_center) ) {
+              if( right_lane_recovery != LANE_RETURN ) {
+                  right_lane_recovery = LANE_CENTERING;
+                  // 両端線を見た走行では、中央付近で小さく舵を合わせてから加速する。
+                  int angle = 0;
+                  if( c == 0x38 || c == 0x10 ) angle = -2;
+                  if( c == 0x1c || c == 0x08 ) angle = 2;
+                  ha( angle );
+                  sp( 65 + stage, 65 + stage );
+                  if( ++right_lane_settle_ms < RIGHT_LANE_SETTLE_MS ) break;
+              }
+              led_out( 0x0 );
+              cnt1 = 0;
+              pattern = 20;
+              break;
+          }
+          right_lane_settle_ms = 0;
+
+          // 確認時間より速く白線が中央を横切った場合も、右に見える線に追従する。
+          if( right_lane_recovery == LANE_CENTERING ) {
+              int angle = 0;
+              switch( c ) {
+                  case 0x0c:                       angle = 7;  break;
+                  case 0x04: case 0x0e:            angle = 11; break;
+                  case 0x06:                       angle = 15; break;
+                  case 0x02: case 0x07:            angle = 18; break;
+                  case 0x01: case 0x03:            angle = 21; break;
+              }
+              if( angle != 0 ) {
+                  ha( angle );
+                  sp( 65 + stage, 65 + stage );
+                  break;
+              }
+          }
+          switch( c ) {
+              case 0x30: ha( -13 ); sp( 63 + stage, 81 + stage ); break;
+              case 0x70: ha( -16 ); sp( 59 + stage, 78 + stage ); break;
+              case 0x60: ha( -19 ); sp( 55 + stage, 75 + stage ); break;
+              case 0xe0: ha( -23 ); sp( 49 + stage, 70 + stage ); break;
+              case 0xc0:
+                  ha( -27 );
+                  sp( 43 + stage, 65 + stage );
+                  cnt1 = 0;
+                  pattern = 440 + stage;
+                  break;
+              default: break;
           }
           break;
-
- case 421:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                    cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   64 ,   82 );
-		                        break;
-				          case 0x70:ha( -16 );
-				                    sp(   60 ,   79 );
-		                        break;
-				          case 0x60:ha( -19 );
-				                    sp(   56 ,   76 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   50 ,   71 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   44 ,   66 );
-		                        cnt1 = 0;
-                            pattern = 441;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 422:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   65 ,   83 );
-		                        break;
-			        	  case 0x70:ha( -16 );
-				                    sp(   61 ,   80 );
-		                        break;
-			        	  case 0x60:ha( -19 );
-				                    sp(   57 ,   77 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   51 ,   72 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   45 ,   67 );
-		                        cnt1 = 0;
-                            pattern = 442;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 423:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   66 ,   84 );
-		                        break;
-				          case 0x70:ha( -16 );
-				                    sp(   62 ,   81 );
-		                        break;
-			        	  case 0x60:ha( -19 );
-				                    sp(   58 ,   78 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   52 ,   73 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   46 ,   68 );
-		                        cnt1 = 0;
-                            pattern = 443;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 424:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   67 ,   85 );
-		                        break;
-				          case 0x70:ha( -16 );
-				                    sp(   63 ,   82 );
-		                        break;
-				          case 0x60:ha( -19 );
-				                    sp(   59 ,   79 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   53 ,   74 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   47 ,   69 );
-		                        cnt1 = 0;
-                            pattern = 444;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 425:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   68 ,   86 );
-		                        break;
-			        	  case 0x70:ha( -16 );
-				                    sp(   64 ,   83 );
-		                        break;
-			        	  case 0x60:ha( -19 );
-				                    sp(   60 ,   80 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   54 ,   75 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   48 ,   70 );
-		                        cnt1 = 0;
-                            pattern = 445;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 426:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   69 ,   87 );
-		                        break;
-			        	  case 0x70:ha( -16 );
-				                    sp(   65 ,   84 );
-		                        break;
-				          case 0x60:ha( -19 );
-				                    sp(   61 ,   81 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   55 ,   76 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   49 ,   71 );
-		                        cnt1 = 0;
-                            pattern = 446;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 427:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-			  
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   70 ,   88 );
-		                        break;
-				          case 0x70:ha( -16 );
-				                    sp(   66 ,   85 );
-		                        break;
-				          case 0x60:ha( -19 );
-				                    sp(   62 ,   82 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   56 ,   77 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   50 ,   72 );
-		                        cnt1 = 0;
-                            pattern = 447;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 428:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   71 ,   89 );
-		                        break;
-				          case 0x70:ha( -16 );
-				                    sp(   67 ,   86 );
-		                        break;
-				          case 0x60:ha( -19 );
-				                    sp(   63 ,   83 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   57 ,   78 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   51 ,   73 );
-		                        cnt1 = 0;
-                            pattern = 448;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 429:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   72 ,   90 );
-		                        break;
-				          case 0x70:ha( -16 );
-				                    sp(   68 ,   87 );
-		                        break;
-				          case 0x60:ha( -19 );
-				                    sp(   64 ,   84 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   58 ,   79 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   52 ,   74 );
-		                        cnt1 = 0;
-                            pattern = 449;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
-
- case 430:              /* 右車線変更の終了処理とコースアウト回避処理 */
-          switch( sensor_inp(MASK4_4) ) {
-
-                  case 0x3c:
-		              case 0x1c:          
-                  case 0x18:
-		              case 0x38:led_out( 0x0 );
-		                        cnt1 = 0;
-                            pattern = 20;
-                            break;
-			            case 0x30:ha( -13 );
-				                    sp(   73 ,   91 );
-		                        break;
-				          case 0x70:ha( -16 );
-				                    sp(   69 ,   88 );
-		                        break;
-			        	  case 0x60:ha( -19 );
-				                    sp(   65 ,   85 );
-		                        break;
-                  case 0xe0:ha( -23 );
-				                    sp(   59 ,   80 );
-		                        break;
-                  case 0xc0:ha( -27 );
-				                    sp(   53 ,   75 );
-		                        cnt1 = 0;
-                            pattern = 450;
-                            break;		  
-                    default:
-                            break;
-          }
-          break;
+ }
 
  case 440:   /* 右車線変更終了時に外へ膨らんだ時のコースアウト回避処理 */
           switch( sensor_inp(MASK4_4) ) {
@@ -5189,7 +4923,7 @@ void newcrank( void )
 {
          if( kyoritime <=  11 ){     /* クロスライン通過後の減速制御 */
          if(cnt1 <  18 ){sp(  100 ,  100 );}
-    else if(cnt1 <  59 ){sp(  -35 ,  -35 );}
+    else if(cnt1 <  59 ){sp( CRANK_FAST_PEAK_BRAKE , CRANK_FAST_PEAK_BRAKE );}
     else if(cnt1 <  75 ){sp(  -30 ,  -30 );}
     else if(cnt1 <  91 ){sp(  -25 ,  -25 );}
     else if(cnt1 < 107 ){sp(  -20 ,  -20 );}
