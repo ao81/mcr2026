@@ -48,7 +48,7 @@ const unsigned int RIGHT_LANE_CENTER_CONFIRM_MS = 2; // 右内側の反応後、
 #define MASK4_4       0xff              // ○○○○○○○○
 
 // ログ処理関係
-#define LOG_MAX       (100)             // LOG_MAX × 10ms分のログをRAMに貯める ログが飛ぶときは増やしてください
+#define LOG_MAX       (100)             // 10ms周期と変化点を共有するリング。終了行用に1枠を予約
 #define LOG_NON       (0)
 #define LOG_INIT      (1)
 #define LOG_WRITE     (2)
@@ -109,16 +109,42 @@ volatile int err_sd;
 volatile int log_st;
 volatile int log_write;
 volatile int log_read;
-typedef struct {
-    unsigned int time;  // 時間
-    int ptn;            // パターン
-    unsigned char sen;  // センサ
-    char ang;           // 角度
-    char ml;            // モータ左
-    char mr;            // モータ右
-} log_t;
-volatile log_t log_buff[LOG_MAX];
-volatile log_t log_raw;
+struct MotorCommand {
+    int8_t ang, ml, mr; // 舵・左右PWM指令。負の値も記録する
+};
+struct LogRow {
+    unsigned long time, timer_ms, white_ms, dropped;
+    int marker_ms;
+    uint16_t before, after, center_ms;
+    int16_t decision_sensor; // 右車線変更の判定に使った実値。未使用は-1
+    uint8_t sensor, marker_phase, inner_seen, dip, stop_reason;
+    MotorCommand prev, next;
+};
+enum LogStopReason { LOG_STOP_RUNNING, LOG_STOP_TIME_LIMIT, LOG_STOP_FULL_WHITE, LOG_STOP_RIGHT_LANE_TIMEOUT, LOG_STOP_PUSH_BUTTON };
+volatile uint8_t log_last_dip;
+volatile MotorCommand log_raw;
+volatile LogRow log_buff[LOG_MAX];
+unsigned long log_dropped; // 割り込み側だけが更新
+
+int nextLogIndex(int index) {
+    return index + 1 == LOG_MAX ? 0 : index + 1;
+}
+
+void writeLogRow() {
+    // log_read を進めるまでは割り込み側がこの行を上書きしない。
+    const volatile LogRow &row = log_buff[log_read];
+    static const char *const stop_names[] = {"", "time_limit", "full_white", "right_lane_timeout", "button"};
+    char line[192];
+    snprintf(line, sizeof(line),
+             "%lu,%u,'%08lu,%d,%d,%d,%u,%lu,%d,%u,%lu,%d,%u,%u,%d,%d,%d,%lu,%u,%s",
+             row.time, (unsigned)row.before, convertBCD_CharToLong(row.sensor),
+             row.prev.ang, row.prev.ml, row.prev.mr, (unsigned)row.after,
+             row.timer_ms, row.marker_ms, (unsigned)row.marker_phase, row.white_ms,
+             row.decision_sensor, (unsigned)row.inner_seen, (unsigned)row.center_ms,
+             row.next.ang, row.next.ml, row.next.mr, row.dropped, (unsigned)row.dip, stop_names[row.stop_reason]);
+    microSD.println(line);
+    log_read = nextLogIndex(log_read);
+}
 
 //***********************************************************************
 // setup
@@ -291,40 +317,21 @@ void loop()
 
               case 992:
                        // 最初に書き込む内容
-                       microSD.println( "ms,pattern,sensor,handle,motor_l,motor_r" );
+                       microSD.println( "ms,pattern,sensor,handle,motor_l,motor_r,next_pattern,cnt1_ms,"
+                                        "kyoritime_ms,kyori_flag,daturin_cnt_ms,decision_sensor,"
+                                        "right_inner_seen,right_center_ms,handle_after,motor_l_after,motor_r_after,dropped_total,dip,stop_reason" );
                        log_pattern = 993;
                        break;
 
               case 993:
-                       if( log_st == LOG_WRITE ) {
-                           log_pattern = 994;
-                       }
+                       if( log_st == LOG_WRITE || log_st == LOG_CLOSE ) log_pattern = 994;
                        break;
 
               case 994:
-                              if( log_write != log_read ) {   // 保存するログが更新されたらmicroSDにログを書き込み
-                                  sprintf( buf, "%08ld", convertBCD_CharToLong( log_buff[log_read].sen) );  // センサの値は2進数8桁で表示
-                                  microSD.print( log_buff[log_read].time );
-                                  microSD.print( "," );
-                                  microSD.print( log_buff[log_read].ptn );
-                                  microSD.print( ",'" );
-                                  microSD.print( buf );
-                                  microSD.print( "," );
-                                  microSD.print( (int)log_buff[log_read].ang );
-                                  microSD.print( "," );
-                                  microSD.print( (int)log_buff[log_read].ml );
-                                  microSD.print( "," );
-                                  microSD.print( (int)log_buff[log_read].mr );
-                                  microSD.println( "" );
-                                  log_read++;
-                                  if( log_read >= LOG_MAX ) {
-                                      log_read = 0;
-                                  }
-                       } else {
-                                  if( log_st != LOG_WRITE ) {   // 最新のログが保存されていて書き込みでないなら終了
-                                      // ログ処理終了
-                                      log_pattern = 995;
-                                  }
+                       if( log_st == LOG_CLOSE && log_read == log_write ) {
+                           log_pattern = 995;
+                       } else if( log_read != log_write ) {
+                           writeLogRow();
                        }
                        break;
 
@@ -347,8 +354,9 @@ void AGTCallback( timer_callback_args_t __attribute((unused)) * p_args )
 {
   static bool right_lane_inner_seen;
   static unsigned int right_lane_center_ms;
-  int cnt10;
-  unsigned char b;
+  static LogStopReason stop_reason = LOG_STOP_RUNNING;
+  static int previous_sensor = -1;
+  static int previous_decision_sensor = -1;
 
   cnt0++;
   cnt1++;
@@ -361,25 +369,17 @@ void AGTCallback( timer_callback_args_t __attribute((unused)) * p_args )
       return;
   }
 
-  // 10msごとにログ保存
-  cnt10 = cnt_start % 10;
-  if( cnt10 == 0 ) {
-      if( log_st == LOG_WRITE) {
-          log_buff[log_write].time = cnt_start;
-          log_buff[log_write].ptn  = pattern;
-          log_buff[log_write].sen  = sensor_inp(MASK4_4);
-          log_buff[log_write].ang  = log_raw.ang;
-          log_buff[log_write].ml   = log_raw.ml;
-          log_buff[log_write].mr   = log_raw.mr;
-          log_write++;
-          if( log_write >= LOG_MAX ) {
-              log_write = 0;
-          }
-      }
-  }
+  // 先頭6列は従来と同じ制御前スナップショット。SD出力は loop() で行う。
+  const bool logging = log_st == LOG_WRITE;
+  const int before = pattern;
+  const unsigned long timer_before = cnt1;
+  const MotorCommand prev = {log_raw.ang, log_raw.ml, log_raw.mr};
+  const int sensor_before = logging ? sensor_inp(MASK4_4) : -1;
+  int decision_sensor = -1;
 
   // ★SDｶｰﾄﾞへの保存方法 → 走行後または走行中にﾓｰﾀﾄﾞﾗｲﾊﾞｰ基盤のプッシュスイッチを押したら記録開始
   if( pattern >= 20 && pattern <=1000 && cnt_start >= 1000 && pushsw_get() == 1 ) {
+      if( stop_reason == LOG_STOP_RUNNING ) stop_reason = LOG_STOP_PUSH_BUTTON;
       pattern = 1001;
   }
 
@@ -393,6 +393,7 @@ void AGTCallback( timer_callback_args_t __attribute((unused)) * p_args )
       // 完走自動停止プログラム
       if( kansou_cnt >= KANSOU_TIME ) {     // ★完走自動停止時間の設定★
           cnt1 = 0;
+          stop_reason = LOG_STOP_TIME_LIMIT;
           pattern = 800;
       }
 
@@ -400,6 +401,7 @@ void AGTCallback( timer_callback_args_t __attribute((unused)) * p_args )
       c = sensor_inp( MASK4_4 );
              if( c == 0xff ) {        // ★床の色に注意してセンサーの反応条件と緊急停止時間を設定★
                  if( daturin_cnt >= 300 ) {    // ★ｺｰｽｱｳﾄ緊急停止時間の設定★
+                     stop_reason = LOG_STOP_FULL_WHITE;
                      pattern = 801;
 				         }
 		  } else {
@@ -1614,12 +1616,14 @@ switch( pattern ) {
               ha( 0 );
               sp( 0, 0 );
               cnt1 = 0;
+              stop_reason = LOG_STOP_RIGHT_LANE_TIMEOUT;
               pattern = 801;
               break;
           }
 
           // 右内側 (bit 2) から中央寄り (bit 3) に動く白線を候補にする。
           c = sensor_inp( MASK4_4 );
+          decision_sensor = c;
           switch( c ) {
             case 0x04: case 0x06: case 0x07:
               right_lane_inner_seen = true;
@@ -4784,6 +4788,44 @@ switch( pattern ) {
           }
           break;
 }   //switch( pattern )処理範囲
+
+  if( logging ) {
+      const bool changed = before != pattern || sensor_before != previous_sensor ||
+                           decision_sensor != previous_decision_sensor ||
+                           prev.ang != log_raw.ang || prev.ml != log_raw.ml || prev.mr != log_raw.mr;
+      previous_sensor = sensor_before;
+      previous_decision_sensor = decision_sensor;
+      if( changed || cnt_start % 10 == 0 ) {
+          const int next = nextLogIndex(log_write);
+          const bool closing = log_st == LOG_CLOSE;
+          if( next == log_read || (!closing && nextLogIndex(next) == log_read) ) {
+              ++log_dropped;
+          } else {
+              volatile LogRow &row = log_buff[log_write];
+              row.time = cnt_start;
+              row.before = before;
+              row.sensor = sensor_before;
+              row.prev.ang = prev.ang;
+              row.prev.ml = prev.ml;
+              row.prev.mr = prev.mr;
+              row.after = pattern;
+              row.timer_ms = timer_before; // 元の制御用cnt1。状態によってリセット位置が異なる
+              row.marker_ms = kyoritime;   // 最後に測定したマーカー通過時間
+              row.marker_phase = kyori_flug;
+              row.white_ms = daturin_cnt;
+              row.decision_sensor = decision_sensor;
+              row.inner_seen = decision_sensor >= 0 && right_lane_inner_seen;
+              row.center_ms = decision_sensor >= 0 ? right_lane_center_ms : 0;
+              row.next.ang = log_raw.ang;
+              row.next.ml = log_raw.ml;
+              row.next.mr = log_raw.mr;
+              row.stop_reason = stop_reason;
+              row.dip = log_last_dip;
+              row.dropped = log_dropped;
+              log_write = next;
+          }
+      }
+  }
 }   //1ms ごとの割り込み処理範囲
 
 //**********************************************************************
@@ -4946,6 +4988,7 @@ void led_out_m( unsigned char led )
 void sp( int accele_l, int accele_r )
 {
   int sw_data = dipsw_get() + 7;         // 7～10
+  log_last_dip = sw_data - 7; // このモータ指令に適用した実際のDIP値
   accele_l = accele_l * sw_data / 10;
   accele_r = accele_r * sw_data / 10;
 
