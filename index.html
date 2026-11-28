@@ -43,8 +43,12 @@ footer a { color: var(--accent); }
       <h2>シミュレータ（simulator）</h2>
       <p>basic/ の走行プログラムを、計算で作ったコースで走らせます。中のプログラムは main の basic/ が変わると自動で最新になります。</p>
     </a>
+    <a class="tool" href="release-sim/">
+      <h2>release.ino の模擬（release-sim）</h2>
+      <p>release/release.ino（表で走るプログラム）を、同じコースで走らせます。先頭の const int の値を画面で変えて比べられます。中のプログラムは main の release/ が変わると自動で最新になります。</p>
+    </a>
   </div>
-  <footer>リポジトリ: <a href="https://github.com/ao81/mcr2026">ao81/mcr2026</a><br>手元のファイル（~/mcr2026）を使うとき：シミュレータは右上の「手元のファイル」から（手元の走行プログラムも使うときは WSL で <code>python3 tools/local_site.py</code> を動かしておく）。パラメータ編集は「フォルダを開く」から。</footer>
+  <footer>リポジトリ: <a href="https://github.com/ao81/mcr2026">ao81/mcr2026</a><br>手元のファイル（~/mcr2026）を使うとき：シミュレータは右上の「手元のファイル」から（手元の走行プログラムも使うときは WSL で <code>python3 tools/local_site.py</code> を動かしておく）。release.ino の模擬は <code>python3 tools/local_site.py</code> を動かして http://127.0.0.1:8770/release-sim/ を開く。パラメータ編集は「フォルダを開く」から。</footer>
 </main>
 </body>
 </html>
