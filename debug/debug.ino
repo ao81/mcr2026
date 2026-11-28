@@ -98,7 +98,9 @@ enum {
     PT_LANE_R_SPOST    = 380,  // 380〜390 円弧を走り終えて、新しい線を探す（USE_NEW_LANE_STEER）
     PT_LANE_R_ALIGN    = 400,  // 400〜410 新しい線に合わせる
     PT_LANE_R_FINISH   = 420,  // 420〜430 終了処理
-    PT_LANE_R_RECOVER  = 440,  // 440〜450 外へふくらんだ時
+    PT_LANE_R_RECOVER  = 440,
+    PT_LANE_R_SNAP     = 460,  // 中央線の切れ目でグイッと曲がる（USE_NEW_LANE_SNAP）
+    PT_LANE_R_SNAPBACK = 470,  // 新しい線を見つけたので、線に沿うように向きを戻す（USE_NEW_LANE_SNAP）  // 440〜450 外へふくらんだ時
     PT_LANE_L_FOUND    = 500,  // 以下、左レーンチェンジ（右と同じ並び）
     PT_LANE_L_PASS     = 501,
     PT_LANE_L_SELECT   = 502,
@@ -110,6 +112,8 @@ enum {
     PT_LANE_L_ALIGN    = 700,
     PT_LANE_L_FINISH   = 720,
     PT_LANE_L_RECOVER  = 740,
+    PT_LANE_L_SNAP     = 760,
+    PT_LANE_L_SNAPBACK = 770,
     PT_STOP            = 800,  // 自動停止（ハンドルで線を追う）
     PT_STOP_HOLD       = 801,  // 完全停止（自動停止の後、またはコースアウト）
     PT_END             = 1001  // 走行とログ記録の終了
@@ -190,8 +194,13 @@ void run_lane_recover(int stage, bool right);
 void run_lane_scurve(int stage, bool right);
 void run_lane_spost(int stage, bool right);
 bool lane_start_scurve(int stage, bool right);
+bool lane_start_snap(bool right);
+void run_lane_snap(bool right);
+void run_lane_snapback(bool right);
 void lane_speed_control(void);
 int lane_pt(bool right, int pt_right, int pt_left);
+float lane_cross_plan(float r, float phi, float d, float v, float ang);
+void lane_cross_check(float s, bool right);
 bool lane_new_line_found(unsigned char c, bool right);
 int lane_cross_recheck(bool right);
 void lane_steer_output(int stage, bool right);
@@ -214,6 +223,8 @@ float lane_r_for(float len, float d);
 int scurve_corner_x(float r, float len, float d, float f_line, float fwd, float lat, float* x_out);
 int lane_old_ok(float r, float len, float d, float x_start, float s0);
 int lane_new_ok(float r, float len, float d, float x_start, float f_end);
+int lane_outer_ok(float r, float len, float d, float x_start);
+float lane_quick_len(float v, float d, float x_start, float r_lo, float len_lo, float wait);
 int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* len_out, float* wait_out);
 int lane_plan(float v, float x_start, float* r_out, float* len_out, float* wait_out);
 float crank_turn_speed_auto(void);
@@ -238,6 +249,7 @@ void correct_lane_speed_by_distance(void);
 float braking_distance(float v, float v_target, int brake_power);
 float deadbeat_speed(float v, float v_target, float k_abs);
 int power_of_speed(float u);
+float speed_of_power(float p);
 int brake_power_for(float remain_m, float v_target, int brake_power, float margin_m);
 void crank_speed_control_new(void);
 void lane_speed_control_new(void);
@@ -299,6 +311,13 @@ float crank_entry_mps;                 // クランクに入る速さ [m/s]（pl
 float lane_entry_mps;                  // 車線変更を始める速さ [m/s]（同上）
 volatile float plan_wait_m;            // 計算した経路：曲がり始めるまでに直進する距離 [m]
 volatile float plan_len_m;             // 計算した経路：円弧1つの長さ [m]
+volatile float lane_end_m;            // レーンチェンジ：S字を終える所 [m]（LANE_CROSS_ADJUST_M でずらす）
+volatile float lane_sw0_m;            // レーンチェンジ：計算した切り返しの所 [m]
+volatile float lane_cross_m;          // レーンチェンジ：センサが新しい線の真上を通るはずの所 [m]（0 以下は見ない）
+volatile float lane_yaw;              // USE_NEW_LANE_SNAP：中央線が切れてから車の向きが変わった角度 [rad]（車線を変える側がプラス）
+volatile float lane_snap_y;           // USE_NEW_LANE_SNAP：後輪の軸の横の位置 [m]（元の線から、車線を変える側がプラス）
+volatile int lane_snap_seen;          // USE_NEW_LANE_SNAP：新しい線を一度でも見たか
+volatile float lane_cross_lag_m;      // レーンチェンジ：S字の始めにサーボが効くまでに進む距離 [m]
 volatile float plan_switch_m;          // 計算した経路：レーンチェンジで逆向きにハンドルを切る所 [m]
 volatile float plan_speed_mps;         // 計算した経路：走る速さ [m/s]
 volatile float plan_angle;             // 計算した経路：ハンドル角度 [度]（向きは呼ぶ側で付ける）
@@ -326,6 +345,7 @@ volatile int crank_measuring;           // USE_NEW_CRANK_QUICK：1 なら曲が�
 volatile int crank_yaw_track;          // USE_NEW_CRANK_QUICK：1 なら円弧で曲がり始めたので、160 / 161 でも crank_yaw を積み上げる
 volatile int crank_unwind;             // USE_NEW_CRANK_QUICK：1 ならハンドルを戻し始めた
 volatile float crank_unwind_m;         // USE_NEW_CRANK_QUICK：ハンドルを戻し始めた所の dist_m
+int crank_wide;                       // CRANK_BRAKE_BEFORE_M：1 ならクロスラインが太い（CRANK_WIDE_SEEN_M 以上に見えた）ので、曲がり角は CRANK_WIDE_TO_M 先とみる
 float crank_app_mps;                  // USE_NEW_CRANK_ANY_COURSE：曲がり角の線を見てからブレーキをかけても間に合う一番速い速さ [m/s]（0 は計算できなかった）
 float crank_extra_m;                   // クランクの線を見つけてから円弧に入るまでに進む距離 [m]（USE_NEW_BRAKE_RANGE）
 float lane_extra_m;                    // 中央線の切れ目を見つけてからS字に入るまでに進む距離 [m]（同上）
@@ -531,6 +551,10 @@ void run_pattern(void) {
     case PT_LANE_L_FOUND:    run_lane_found(false);     return;
     case PT_LANE_L_PASS:     run_lane_pass(false);      return;
     case PT_LANE_L_SELECT:   run_lane_select(false);    return;
+    case PT_LANE_R_SNAP:     run_lane_snap(true);       return;
+    case PT_LANE_L_SNAP:     run_lane_snap(false);      return;
+    case PT_LANE_R_SNAPBACK: run_lane_snapback(true);   return;
+    case PT_LANE_L_SNAPBACK: run_lane_snapback(false);  return;
     case PT_STOP:            run_stop();                return;
     case PT_STOP_HOLD:       run_stop_hold();           return;
     case PT_END:             run_end();                 return;

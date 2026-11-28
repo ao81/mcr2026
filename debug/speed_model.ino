@@ -49,10 +49,29 @@ float accel_up_limit(float v, float k_abs) {
 }
 
 //**********************************************************************
+// クロスラインの後（pattern 100〜103）で、CRANK_BRAKE_DECEL_MPS2 を使うときか
+//**********************************************************************
+static bool crank_brake_decel_on(void) {
+    return CRANK_BRAKE_DECEL_MPS2 > 0.0f && pattern >= PT_CROSS_FOUND && pattern <= PT_CRANK_SEARCH;
+}
+
+// ブレーキの減速度 [m/s²]。クロスラインの後は実車に合わせた CRANK_BRAKE_DECEL_MPS2、それ以外は GRIP_LONG_USE
+//   2026-11-27 CRK0050：5.4 m/s² と見ていたため、推定が目標の速さに下がるまでブレーキを続けている間に、実車は止まってバックした
+float brake_decel_mps2(void) {
+    return crank_brake_decel_on() ? CRANK_BRAKE_DECEL_MPS2 : GRIP_LONG_USE;
+}
+
+//**********************************************************************
 // 1msごとに呼ぶ：最後に出したモータ出力から速さと距離を更新
 //**********************************************************************
 void speed_model_update(void) {
     const float dt = 0.001f;
+#if !USE_NEW_VMAX_LEARN
+    // クロスラインからクランクを曲がり終えるまで（pattern 100〜161）は、出力100%の速さを実車の値 CRANK_VMAX_MPS にする。
+    // V_MAX_MPS（1.8）は実車（約 2.5 m/s）より遅いので、0.70 m/s に保つつもりの出力 56% で実車は約 1.0 m/s 出て、
+    // 曲がり始めるまでの距離も実際より短く数えていた（FULL0059：0.113m 直進のつもりが約 0.16m 進み、センサがコースの端を越えた）
+    v_max_mps = (CRANK_VMAX_MPS > 0.0f && pattern >= PT_CROSS_FOUND && pattern <= PT_CRANK_R_OUTSIDE) ? CRANK_VMAX_MPS : V_MAX_MPS;
+#endif
     servo_model_update();
     float power = (log_raw.ml + log_raw.mr) * 0.5f;          // DIPスイッチで縮小した後の出力
     // 同じ出力をどれだけ続けているか（USE_NEW_VMAX_LEARN で、ラインで測った速さから v_max_mps を直接求めるのに使う）。
@@ -63,9 +82,16 @@ void speed_model_update(void) {
         steady_power = power;
         steady_ms = 0;
     }
-    float target = power / 100.0f * v_max_mps;
+    float target = speed_of_power(power);
     float v = speed_mps;
     float a = (target - v) / MOTOR_TAU_S;
+    const bool crank_zone = crank_brake_decel_on();
+    // クロスラインの後、全開で走っている間は推定の速さを下げない。
+    // 実車の全開の速さ（約 2.5 m/s）は V_MAX_MPS（1.8）より速いので、クロスラインで測った速さ（約 2.4）は、
+    // そのままでは 1.8 に向かって下がっていき、実際より遅く見て、ブレーキが遅れる（全開で遅くなることはない）
+    if (crank_zone && power >= 99.0f && a < 0.0f) a = 0.0f;
+    // 逆転のブレーキの減速度：クロスラインの後は CRANK_BRAKE_DECEL_MPS2（実車に合わせた値）
+    const float g_dn = (crank_zone && power < 0.0f) ? CRANK_BRAKE_DECEL_MPS2 : GRIP_LONG_USE;
     float k = curvature_of_angle(log_raw.ang);
     car_k_eff = k;
 #if USE_NEW_CURVE_PREVIEW
@@ -74,9 +100,10 @@ void speed_model_update(void) {
     // （曲がりきれずに外へふくらみ、ブレーキも弱くなる）。縮めた曲率は、線の形の推定で「車が本当に曲がった分」に使う
     k = curvature_of_angle(servo_est_deg);
     if (a > GRIP_LONG_MPS2) a = GRIP_LONG_MPS2;
-    if (a < -GRIP_LONG_MPS2) a = -GRIP_LONG_MPS2;
+    const float g_dn_grip = (g_dn > GRIP_LONG_MPS2) ? g_dn : GRIP_LONG_MPS2;
+    if (a < -g_dn_grip) a = -g_dn_grip;
     float q_lat = v * v * k / GRIP_LAT_MPS2;
-    float q_long = a / GRIP_LONG_MPS2;
+    float q_long = a / (a < 0.0f ? g_dn_grip : GRIP_LONG_MPS2);
     float q = sqrtf(q_lat * q_lat + q_long * q_long);
     car_k_eff = k;
     if (q > 1.0f) {
@@ -86,8 +113,9 @@ void speed_model_update(void) {
 #endif
     float a_up = accel_up_limit(v, fabsf(k));
     if (a > a_up) a = a_up;                                   // タイヤがすべるほどの加速はできない
-    if (a < -GRIP_LONG_USE) a = -GRIP_LONG_USE;               // ブレーキは余裕をみた値（遅めに減速すると考える）
+    if (a < -g_dn) a = -g_dn;                                 // ブレーキは余裕をみた値（遅めに減速すると考える）。クロスラインの後は実車に合わせた値
     v = v + a * dt;
+    if (v < 0.0f && power >= 0.0f) v = 0.0f;                  // 摩擦で止まる（前へ出力していて後ろへは進まない）
     if (!finite_f(v)) v = 0.0f;                               // config.h の値がおかしいときに、計算が壊れたままにならないように
     speed_mps = v;
     dist_m = dist_m + v * dt;
@@ -102,6 +130,9 @@ void speed_measure_by_line(float width_m, int pass_ms) {
     float t = (pass_ms + LINE_PASS_OFFSET_MS) * 0.001f;
     if (t <= 0.0f) return;
     float v_meas = width_m / t;
+    // 実車が出せない速さは測り間違い（斜めに通って通過時間が短く出た など）。上限で抑える（CRK0050：8ms で 4.44 m/s と出た）
+    // クロスラインだけ。レーンチェンジ（ハーフライン）はうまく走れているので変えない
+    if (SPEED_MEAS_MAX_MPS > 0.0f && pattern == PT_CROSS_PASS && v_meas > SPEED_MEAS_MAX_MPS) v_meas = SPEED_MEAS_MAX_MPS;
 #if USE_NEW_VMAX_LEARN
     // 同じ出力を VMAX_STEADY_MS 以上出し続けた後なら（スタートから全開で最初のラインまで など）、
     // 推定の速さも本当の速さも、同じ時定数で「出力 × 出力100%の速さ」に近づいているので、
@@ -378,13 +409,14 @@ void reset_distance(void) {
 //**********************************************************************
 float braking_distance(float v, float v_target, int brake_power) {
     if (v <= v_target) return 0.0f;
-    float vb = brake_power / 100.0f * v_max_mps;
+    float vb = speed_of_power((float)brake_power);
     if (vb >= v_target) return 1.0e6f;                // このブレーキでは目標の速さまで落ちない
     float s = 0.0f;
-    float v1 = vb + MOTOR_TAU_S * GRIP_LONG_USE;      // これより速いと減速度はグリップで決まる
+    const float g = brake_decel_mps2();               // クロスラインの後は CRANK_BRAKE_DECEL_MPS2
+    float v1 = vb + MOTOR_TAU_S * g;                  // これより速いと減速度はグリップで決まる
     if (v > v1) {
         float v_end = (v_target > v1) ? v_target : v1;
-        s += (v * v - v_end * v_end) / (2.0f * GRIP_LONG_USE);
+        s += (v * v - v_end * v_end) / (2.0f * g);
         if (v_target >= v1) return s;
         v = v1;
     }
@@ -405,13 +437,22 @@ float deadbeat_speed(float v, float v_target, float k_abs) {
     // ブレーキ側は制限しない。推定した速さが実際より速いとき、ブレーキが弱くなるのを避けるため
     // （グリップを超える分はタイヤがすべり、減速度は GRIP_LONG_USE 程度になる。モデルもそう計算する）
     if (u > v_max_mps) u = v_max_mps;
-    if (u < -v_max_mps) u = -v_max_mps;
+    if (u < speed_of_power(-100.0f)) u = speed_of_power(-100.0f);   // 出力 -100% で近づく速さ（摩擦の分だけ -v_max_mps より小さい）
     return u;
 }
 
 // 指令の速さ [m/s] を出力 [%] に直す
+//**********************************************************************
+// 出力 [%] と、その出力を出し続けたときに近づく速さ [m/s] の関係
+//   出力が MOTOR_FRICTION_PERCENT 以下では、摩擦に負けて走らない（2026-11-26 実車：39% で 0.26 m/s、54% で 0.6〜0.7 m/s、100% で 1.8 m/s）。
+//   速さ = v_max_mps × (出力 − F) ÷ (100 − F)。出力が F より小さいと、マイナスの速さ（＝減速）に向かう
+//**********************************************************************
+float speed_of_power(float p) {
+    return v_max_mps * (p - MOTOR_FRICTION_PERCENT) / (100.0f - MOTOR_FRICTION_PERCENT);
+}
+
 int power_of_speed(float u) {
-    float p = u / v_max_mps * 100.0f;
+    float p = MOTOR_FRICTION_PERCENT + u / v_max_mps * (100.0f - MOTOR_FRICTION_PERCENT);
     if (!finite_f(p)) return 0;                                // 計算が壊れたときは出力しない
     int i = (int)(p >= 0.0f ? p + 0.5f : p - 0.5f);
     return clamp_int(i, -100, 100);
@@ -453,6 +494,25 @@ int brake_power_for(float remain_m, float v_target, int brake_power, float margi
 //**********************************************************************
 void crank_speed_control_new(void) {
 #if USE_NEW_CRANK_ANY_COURSE
+    if (CRANK_BRAKE_BEFORE_M > 0.0f) {
+        // 曲がり角の CRANK_BRAKE_BEFORE_M 手前（実際の距離）まで全開、そこから曲がる速さまでブレーキ。
+        // 曲がり角までの距離は COURSE_LIST の値（スタート位置が決まるまでは、あり得る中で一番短い距離）。
+        // クロスラインが太く見えたら、CRANK_WIDE_TO_M の方が短ければそちらにする（試走で1つのクランクだけ走るときも 600mm に間に合う）
+        bool on_line = (pattern == PT_CROSS_FOUND || pattern == PT_CROSS_PASS);
+        if (pattern == PT_CROSS_FOUND) crank_wide = 0;
+        if (on_line && speed_mps * (float)(cnt1 + LINE_PASS_OFFSET_MS) * 0.001f >= CRANK_WIDE_SEEN_M) crank_wide = 1;
+        float to = crank_to_m;
+        if (crank_wide && CRANK_WIDE_TO_M < to) to = CRANK_WIDE_TO_M;
+        float start = (to - CRANK_BRAKE_BEFORE_M) * CRANK_DIST_RATIO;   // クロスラインの終わりから、ブレーキを始める所まで（計算の距離）
+        if (!brake_started && dist_m < start) {
+            sp(100, 100);
+            return;
+        }
+        brake_started = 1;                         // 一度始めたら、曲がる速さに保つまで全開に戻らない
+        int pb = brake_power_for(0.0f, crank_entry_mps, CRANK_BRAKE_POWER, 0.0f);
+        sp(pb, pb);
+        return;
+    }
     // 曲がり角までの距離を使わない：曲がり角の線を見てからでも間に合う速さ（計算できなければクランクに入る速さ）まで、すぐに落とす
     if (CRANK_MIN_TO_M > 0.0f && CRANK_APPROACH_MPS == 0.0f) {
         // このコースで一番近いクランク（CRANK_MIN_TO_M 先に曲がり角がある）でちょうど間に合うように、そこまでは全開で走り、そこから減速する。
@@ -554,7 +614,7 @@ void traction_limit(int* power_l, int* power_r) {
     float wheel[2] = { v * (1.0f + k * TREAD_M * 0.5f), v * (1.0f - k * TREAD_M * 0.5f) };
     int* power[2] = { power_l, power_r };
     for (int i = 0; i < 2; i++) {
-        float hi = (wheel[i] + MOTOR_TAU_S * a_up) / v_max_mps * 100.0f;
+        float hi = MOTOR_FRICTION_PERCENT + (wheel[i] + MOTOR_TAU_S * a_up) / v_max_mps * (100.0f - MOTOR_FRICTION_PERCENT);
         int p = *power[i];
         if (p > hi) p = (int)floorf(hi);
         *power[i] = clamp_int(p, -100, 100);
@@ -652,7 +712,7 @@ void trace_motor_preview(float k_ahead) {
     if (u > u_hi) u = u_hi;
     if (u < u_lo) u = u_lo;
     if (u > v_max_mps) u = v_max_mps;
-    if (u < -v_max_mps) u = -v_max_mps;
+    if (u < speed_of_power(-100.0f)) u = speed_of_power(-100.0f);   // 出力 -100% で近づく速さ（摩擦の分だけ -v_max_mps より小さい）
     drive_center(u, k_act);
 }
 

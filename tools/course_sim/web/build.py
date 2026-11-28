@@ -128,7 +128,8 @@ def main():
             rev += "（コミットしていない変更あり）"
     except OSError:
         rev = "不明"
-    info = {"built": datetime.datetime.now().strftime("%Y-%m-%d"), "rev": rev}
+    # tools/local_site.py（ローカル版）は SIM_LOCAL=1 で、作った時刻も出す
+    info = {"built": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S" if os.environ.get("SIM_LOCAL") else "%Y-%m-%d"), "rev": rev}
     with open(os.path.join(HERE, "simulator_template.html"), encoding="utf-8") as f:
         page = f.read()
     data = "const WASM_B64 = \"%s\";\nconst CFG_ITEMS = %s;\nconst BUILD = %s;" % (
@@ -138,6 +139,10 @@ def main():
     page = page.replace("// __BUILD_DATA__", data.replace("</", "<\\/"), 1)
     with open(OUT, "w", encoding="utf-8") as f:
         f.write(page)
+    if os.environ.get("SIM_JSON"):
+        # tools/local_site.py が、GitHub Pages のシミュレータへ手元の版を渡すために使う
+        with open(os.environ["SIM_JSON"], "w", encoding="utf-8") as f:
+            json.dump({"wasm": wasm_b64, "items": items, "build": info}, f, ensure_ascii=False)
     print("書き出しました: %s（%d KB、設定項目 %d）" % (OUT, len(page) // 1024, len(items)))
 
 

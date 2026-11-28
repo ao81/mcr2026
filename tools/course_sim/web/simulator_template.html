@@ -9,7 +9,7 @@
 <style>
   :root {
     --bg: #f2f3f5; --panel: #ffffff; --text: #1d232b; --sub: #5d6773; --line: #d9dde3; --accent: #2f6fd6; --accent-bg: #e6eefb;
-    --field: #7d8c7a; --surface: #23272c; --white: #f2f2f2; --cursor: #d43d3d; --warn: #c0352b; --ok: #1f8a4c; --changed: #fff1b8;
+    --field: #7d8c7a; --surface: #23272c; --white: #f2f2f2; --gray: #8b9097; --cursor: #d43d3d; --warn: #c0352b; --ok: #1f8a4c; --changed: #fff1b8;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #14171b; --panel: #1e2328; --text: #e7eaee; --sub: #9aa4af; --line: #343b43; --accent: #6ea2f5; --accent-bg: #23344f;
@@ -41,6 +41,15 @@
   .seg button.on { background: var(--accent); color: #fff; }
   .seg button kbd { font: 10px ui-monospace, monospace; opacity: .6; margin-left: 3px; }
   #buildInfo { margin-left: auto; color: var(--sub); font-size: 11px; }
+  #localBtn { font-size: 12px; padding: 3px 9px; }
+  #localBar { display: none; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0 10px 8px; padding: 5px 10px; border-radius: 6px; background: #2f6fd6; color: #fff; font-size: 12px; }
+  #localBar.err { background: #b3261e; }
+  #localBar button { font-size: 12px; padding: 2px 8px; }
+  #localBar details { flex-basis: 100%; }
+  #localBar pre { white-space: pre-wrap; max-height: 40vh; overflow: auto; margin: 4px 0 0; background: #0006; padding: 6px; }
+  #localDlg { max-width: 560px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font-size: 13px; }
+  #localDlg button.big { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 8px 10px; }
+  #localDlg code { font: 12px ui-monospace, monospace; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
 
   /* ---------- 3列 ---------- */
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: 390px minmax(0, 1fr) 290px; gap: 10px; padding: 0 10px 10px; }
@@ -130,7 +139,17 @@
   <h1>マイコンカー模擬</h1>
   <div class="seg" id="courseSeg"></div>
   <span id="buildInfo"></span>
+  <button id="localBtn" title="GitHub の版の代わりに、手元の ~/mcr2026 のファイルを使う">手元のファイル</button>
 </header>
+<div id="localBar"><span id="localMsg"></span><button id="localReload">読み直す</button><button id="localOff">GitHub の版に戻す</button><details id="localDet" hidden><summary>理由を見る</summary><pre id="localErr"></pre></details></div>
+<dialog id="localDlg">
+  <h3 style="margin:0 0 6px">手元のファイルを使う</h3>
+  <p style="margin:0 0 4px">GitHub の版の代わりに、手元の mcr2026 のファイルで模擬します。選んだものはこのブラウザに覚え、次に開いた時も使います。</p>
+  <button class="big" id="useServer"><b>手元のサーバから読む（プログラムと値）</b><br>WSL で <code>cd ~/mcr2026 && python3 tools/local_site.py</code> を実行してから押してください。手元の basic/ の走行プログラムと config.h の値で作り直したものを使います。basic/ を変えたらページを再読み込みすると作り直します。ブラウザに「この端末の他のアプリへのアクセス」の確認が出たら許可してください。</button>
+  <button class="big" id="useDir"><b>フォルダを選ぶ（値だけ）</b><br>mcr2026 のフォルダ（\\wsl.localhost\Ubuntu\home\ao\mcr2026）を選ぶと、basic/config.h の値を初期値にします。走行プログラムは GitHub の版のままです。Chrome・Edge（Brave は brave://flags/#file-system-access-api を有効に）で使えます。</button>
+  <p id="localDlgMsg" style="color:#d33;margin:4px 0"></p>
+  <div style="text-align:right"><button id="localCancel">閉じる</button></div>
+</dialog>
 <main>
   <div class="card" id="settings">
     <div class="tabs">
@@ -154,7 +173,7 @@
     <div class="pane" id="pane-env">
       <h3>コース</h3>
       <div id="courseOpts"></div>
-      <label class="chk" id="syncRow"><input type="checkbox" id="syncDist">上の距離をプログラムの CROSS_TO_CRANK_M / HALF_TO_LANE_M にも入れる（大会でコースを測って config.h に入れた場合）。外すと、コースだけが違う場合を試せます</label>
+      <label class="chk" id="syncRow"><input type="checkbox" id="syncDist">上の距離をプログラムの CROSS_TO_CRANK_M / HALF_TO_LANE_M / LANE_PRE_M / LANE_SECTION_M にも入れる（大会でコースを測って config.h に入れた場合）。外すと、コースだけが違う場合を試せます</label>
       <h3>車の本当の値</h3>
       <div class="note">空欄は「config.h の値どおり」。プログラムの値はそのままで、本当の車だけが違う場合（グリップが 10% 低い、サーボが遅いなど）を試せます。すべての走りに同じ値を使います。</div>
       <div id="carOpts"></div>
@@ -189,11 +208,24 @@
 </script>
 <script>
 "use strict";
+// ================= 手元のファイルを使う（tools/local_site.py のサーバ、またはフォルダの config.h） =================
+// localStorage の mcr-sim-local に、前に読んだものを入れておき、ページを開いた時はそれを使う（読むのは非同期なので）。
+// その後で読み直し、変わっていれば入れ替えてページを開き直す。
+const LOCAL_KEY = "mcr-sim-local", LOCAL_URL = "http://127.0.0.1:8770";
+let LOCAL = null;
+try { LOCAL = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"); } catch (e) { }
+const SRC = { wasm: WASM_B64, items: CFG_ITEMS, build: BUILD };  // 使う版（下で手元の版に入れ替える）
+if (LOCAL && LOCAL.mode === "server" && LOCAL.wasm && LOCAL.items) {
+  SRC.wasm = LOCAL.wasm; SRC.items = LOCAL.items; SRC.build = LOCAL.build;
+} else if (LOCAL && LOCAL.mode === "dir" && LOCAL.defs) {
+  SRC.items = CFG_ITEMS.map(it => (it.name in LOCAL.defs) ? Object.assign({}, it, { def: LOCAL.defs[it.name] }) : it);
+}
+
 // ================= 模擬のプログラム（WebAssembly）を動かす =================
 class ExitSignal { constructor(code) { this.code = code; } }
 let MOD = null;
 async function loadModule() {
-  const bin = Uint8Array.from(atob(WASM_B64), c => c.charCodeAt(0));
+  const bin = Uint8Array.from(atob(SRC.wasm), c => c.charCodeAt(0));
   MOD = await WebAssembly.compile(bin);
 }
 // cfg: CFG_ITEMS と同じ並びの数値、args: course_sim に渡す引数。戻り値は出力の文字列
@@ -247,7 +279,7 @@ function parseOutput(text) {
 }
 
 // ================= 設定 =================
-const ITEMS = CFG_ITEMS.map((it, i) => Object.assign({ i }, it));
+const ITEMS = SRC.items.map((it, i) => Object.assign({ i }, it));
 const BY_NAME = Object.fromEntries(ITEMS.map(it => [it.name, it]));
 const SWITCHES = ITEMS.filter(it => it.kind === "switch");
 const GLOBAL_CFG = ["AUTO_STOP_MS"];   // 走りごとではなく、「コースと車」でまとめて変える値
@@ -256,7 +288,7 @@ const SW_LABEL = {
   USE_NEW_TRACTION: "加速の制限", USE_NEW_TRACE_SPEED: "通常走行の速さ", USE_NEW_CURVE_SPEED: "大曲がりの速さ",
   USE_NEW_STEER: "通常走行のハンドル", USE_NEW_CRANK_BRAKE: "クランク手前の減速", USE_NEW_CRANK_TURN: "クランクの円弧",
   USE_NEW_LANE_BRAKE: "レーンチェンジ手前の減速", USE_NEW_LANE_STEER: "レーンチェンジのS字", USE_NEW_VMAX_LEARN: "出力100%の速さの学習",
-  USE_NEW_LANE_WIDTH_INTERVAL: "ハーフラインの通過時間誤差を考慮",
+  USE_NEW_LANE_WIDTH_INTERVAL: "ハーフラインの通過時間誤差を考慮", USE_NEW_LANE_SNAP: "レーンチェンジをグイッと曲がる",
   USE_NEW_LANE_DISTANCE: "車線変更前の距離で速度を補正", USE_NEW_LANE_DOWN_ONLY: "距離補正を下方に限定",
   USE_NEW_LINE_SHAPE: "線の形の推定", USE_NEW_CURVE_PREVIEW: "カーブの先読み", USE_NEW_BRAKE_RANGE: "減速の距離を全部使う", USE_NEW_CRANK_QUICK: "クランクを素早く曲がる",
 };
@@ -264,14 +296,17 @@ const COURSES = [["crank_l", "左クランク"], ["crank_r", "右クランク"],
 // course_sim の「本当の値」。cfg は初期値になる config.h の名前（空欄ならその値）。prog はプログラム側の値（すべての走りに入れる）
 const COURSE_OPTS = [
   { k: "approach", label: "スタートから特別な線（カーブは入口）まで [m]", def: 1.5 },
-  { k: "cross_to", label: "クロスラインの終わりから曲がり角まで [m]", cfg: "CROSS_TO_CRANK_M", only: "crank" },
+  { k: "cross_to", label: "クロスラインの終わりから、曲がった後の車線の中心線まで [m]（規則 0.5〜1.0）", cfg: "CROSS_TO_CRANK_M", only: "crank" },
   { k: "half_to", label: "ハーフラインの終わりから中央線の切れ目まで [m]", cfg: "HALF_TO_LANE_M", only: "lane" },
-  { k: "lane_sec", label: "切れ目から新しい車線だけになるまで [m]", cfg: "LANE_SECTION_M", only: "lane" },
+  { k: "lane_pre", label: "合流部分の始まりから中心線の切れ目まで [m]（規則：合流部分は全部で 0.6、中の線は 0.2 と 0.4）", def: 0.2, only: "lane" },
+  { k: "lane_sec", label: "切れ目から合流部分の終わりまで [m]", def: 0.4, only: "lane" },
   { k: "lane_new", label: "切れ目から新しい車線の線が始まるまで [m]", def: 0, only: "lane" },
-  { k: "curve_r", label: "カーブの半径 [m]（180° のカーブ）", def: 0.45, only: "curve" },
-  { k: "s_rad", label: "S字の円弧の半径 [m]", def: 0.8, only: "s" },
+  { k: "curve_r", label: "カーブの中心線の半径 [m]（180° のカーブ。規則：内側の端の半径 0.45 以上 → 中心線 0.60 以上）", def: 0.60, only: "curve" },
+  { k: "s_rad", label: "S字の円弧の中心線の半径 [m]（規則は 0.60 以上）", def: 0.60, only: "s" },
   { k: "s_deg", label: "S字の円弧1つで曲がる角度 [度]", def: 90, only: "s" },
-  { k: "line_w", label: "クロス・ハーフラインの白の幅 [m]", def: 0.032, only: "crank lane" },
+  { k: "line_w", label: "クロス・ハーフラインの白の幅 [m]（規則 0.020〜0.040）", def: 0.032, only: "crank lane" },
+  { k: "shoulder", label: "路肩の白 30mm（1 あり、0 なし）", def: 1 },
+  { k: "gray_white", label: "中心線の両側の灰色 10mm をセンサが白と見る（1 白、0 黒）", def: 0 },
   { k: "auto_stop", label: "スタートから自動停止まで [ms]", code: "AUTO_STOP_MS", cfg: "AUTO_STOP_MS", prog: true },
   { k: "ms", label: "模擬する時間の上限 [ms]", def: 6000, ph: "自動" },
 ];
@@ -466,6 +501,8 @@ function cfgValues(run) {
   if (S.sync) {
     if (S.copt.cross_to !== undefined) v[BY_NAME.CROSS_TO_CRANK_M.i] = S.copt.cross_to;
     if (S.copt.half_to !== undefined) v[BY_NAME.HALF_TO_LANE_M.i] = S.copt.half_to;
+    if (S.copt.lane_pre !== undefined) v[BY_NAME.LANE_PRE_M.i] = S.copt.lane_pre;
+    if (S.copt.lane_sec !== undefined) v[BY_NAME.LANE_SECTION_M.i] = S.copt.lane_sec;
   }
   return v;
 }
@@ -685,6 +722,7 @@ function draw() {
   ctx.setTransform(k, 0, 0, -k, W / 2 - cam.x * k, H / 2 + cam.y * k);
   if (D.course) {
     shapePath(ctx, D.course.surface); ctx.fillStyle = css("--surface"); ctx.fill();
+    if (D.course.gray) { shapePath(ctx, D.course.gray); ctx.fillStyle = css("--gray"); ctx.fill(); }
     shapePath(ctx, D.course.white); ctx.fillStyle = css("--white"); ctx.fill();
   }
   if ($("trail").checked) {
@@ -816,7 +854,112 @@ $("addRun").onclick = () => addRun();
 $("avg7").onclick = average7;
 $("resetAll").onclick = () => { S = defaultState(); buildAll(); changed(); };
 
-$("buildInfo").textContent = `中の走行プログラム: basic/ のコミット ${BUILD.rev}（このファイルは ${BUILD.built} に作成）`;
+$("buildInfo").textContent = `中の走行プログラム: basic/ のコミット ${SRC.build.rev}（このファイルは ${SRC.build.built} に作成）`;
+
+// ---------- 手元のファイル ----------
+function saveLocal(v) {
+  try { if (v) localStorage.setItem(LOCAL_KEY, JSON.stringify(v)); else localStorage.removeItem(LOCAL_KEY); return true; }
+  catch (e) { alert("ブラウザに保存できませんでした: " + e); return false; }
+}
+function localBar(msg, err, detail) {
+  $("localBar").style.display = "flex";
+  $("localBar").classList.toggle("err", !!err);
+  $("localMsg").textContent = msg;
+  $("localDet").hidden = !detail; $("localErr").textContent = detail || "";
+}
+async function fetchServer(have) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 600000);
+  try {
+    const r = await fetch(LOCAL_URL + "/api/sim?have=" + encodeURIComponent(have || ""), { cache: "no-store", signal: ctl.signal, targetAddressSpace: "loopback" });
+    const j = await r.json();
+    if (!r.ok) throw Object.assign(new Error(j.error || ("HTTP " + r.status)), { detail: j.detail });
+    return j;
+  } finally { clearTimeout(t); }
+}
+const NO_SERVER = "手元のサーバにつながりません。WSL で cd ~/mcr2026 && python3 tools/local_site.py を実行しているか確かめてください（ブラウザが手元へのアクセスを止めている場合もあります）。";
+async function serverCheck(first) {
+  localBar("手元のサーバに確かめています（basic/ が変わっていれば作り直すので、数十秒かかることがあります）…");
+  let j;
+  try { j = await fetchServer(first ? "" : LOCAL.hash); }
+  catch (e) {
+    if (first) throw e;
+    const net = e.name === "AbortError" || e instanceof TypeError;
+    localBar((net ? NO_SERVER : "手元のサーバで走行プログラムを作れませんでした。") + "前に読んだ手元の版（" + SRC.build.built + " に作成）を使っています。", true, e.detail || (net ? "" : e.message));
+    return;
+  }
+  if (j.same) { localBar("手元のサーバの版です：手元の basic/ の走行プログラムと config.h の値（" + SRC.build.built + " に作成）。basic/ を変えたら、このページを再読み込みしてください。"); return; }
+  if (saveLocal({ mode: "server", hash: j.hash, wasm: j.wasm, items: j.items, build: j.build })) location.reload();
+}
+function parseConfig(text) {
+  const defs = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^#define\s+([A-Z0-9_]+)\s+\(?\s*(-?[0-9]+(?:\.[0-9]*)?)f?\s*\)?(\s|\/\/|$)/);
+    if (m && m[1] in BY_NAME && m[1] !== "COURSE_LIST_USE") defs[m[1]] = +m[2];
+  }
+  return defs;
+}
+function idb(fn) {
+  return new Promise((ok, ng) => {
+    const rq = indexedDB.open("mcr-sim", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("h");
+    rq.onerror = () => ng(rq.error);
+    rq.onsuccess = () => { const tx = rq.result.transaction("h", "readwrite"); const q = fn(tx.objectStore("h")); tx.oncomplete = () => ok(q && q.result); tx.onerror = () => ng(tx.error); };
+  });
+}
+async function readDir(dir) {
+  const b = await dir.getDirectoryHandle("basic").catch(() => { throw new Error("選んだフォルダに basic/ がありません。mcr2026 のフォルダを選んでください。"); });
+  const text = await (await (await b.getFileHandle("config.h")).getFile()).text();
+  return parseConfig(text);
+}
+function sameDefs(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function dirMsg() {
+  const n = SRC.items.filter((it, i) => it.def !== CFG_ITEMS[i].def).length;
+  localBar(`フォルダ「${LOCAL.name}」の basic/config.h の値を初期値にしています（GitHub の版と違う値 ${n} 個）。走行プログラムは GitHub の版（basic/ のコミット ${BUILD.rev}）です。`);
+}
+async function dirCheck(gesture) {
+  let dir = null;
+  try { dir = await idb(st => st.get("dir")); } catch (e) { }
+  if (!dir) { dirMsg(); return; }
+  let perm = await dir.queryPermission({ mode: "read" });
+  if (perm !== "granted" && gesture) perm = await dir.requestPermission({ mode: "read" });
+  if (perm !== "granted") { dirMsg(); $("localMsg").textContent += " config.h を変えたら「読み直す」を押してください。"; return; }
+  const defs = await readDir(dir);
+  if (sameDefs(defs, LOCAL.defs)) { dirMsg(); return; }
+  if (saveLocal({ mode: "dir", name: dir.name, defs })) location.reload();
+}
+$("localBtn").onclick = () => { $("localDlgMsg").textContent = ""; $("localDlg").showModal(); };
+$("localCancel").onclick = () => $("localDlg").close();
+$("useServer").onclick = async () => {
+  $("localDlgMsg").textContent = "手元のサーバから読んでいます（初めは作るのに数十秒かかることがあります）…";
+  try {
+    const j = await fetchServer("");
+    if (saveLocal({ mode: "server", hash: j.hash, wasm: j.wasm, items: j.items, build: j.build })) location.reload();
+  } catch (e) {
+    const net = e.name === "AbortError" || e instanceof TypeError;
+    $("localDlgMsg").textContent = net ? NO_SERVER : "手元のサーバで走行プログラムを作れませんでした: " + e.message + (e.detail ? "\n" + e.detail.slice(-1500) : "");
+  }
+};
+$("useDir").onclick = async () => {
+  if (!window.showDirectoryPicker) { $("localDlgMsg").textContent = "このブラウザはフォルダを選べません。Chrome か Edge を使ってください（Brave は brave://flags/#file-system-access-api を有効に）。"; return; }
+  try {
+    const dir = await showDirectoryPicker({ id: "mcr2026", mode: "read" });
+    const defs = await readDir(dir);
+    await idb(st => st.put(dir, "dir")).catch(() => { });
+    if (saveLocal({ mode: "dir", name: dir.name, defs })) location.reload();
+  } catch (e) { if (e.name !== "AbortError") $("localDlgMsg").textContent = e.message; }
+};
+$("localOff").onclick = () => { saveLocal(null); location.reload(); };
+$("localReload").onclick = () => {
+  if (!LOCAL) return;
+  if (LOCAL.mode === "server") serverCheck(false); else dirCheck(true).catch(e => localBar(e.message, true));
+};
+if (SRC.wasm === LOCAL?.wasm) {
+  $("buildInfo").textContent = `中の走行プログラム: 手元の basic/（${SRC.build.rev}、${SRC.build.built} に作成）`;
+  serverCheck(false);
+} else if (LOCAL && LOCAL.mode === "dir") {
+  $("buildInfo").textContent += "・値は手元の config.h";
+  dirCheck(false).catch(e => localBar(e.message, true));
+}
 buildAll(); resize();
 loadModule().then(simulateAll).catch(e => setStatus("模擬のプログラムを読み込めませんでした: " + e));
 </script>

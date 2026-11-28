@@ -219,12 +219,34 @@ int scurve_corner_x(float r, float len, float d, float f_line, float fwd, float 
     return 1;
 }
 
-// ① 古い車線からはみ出さないか（s0 = 曲がり始めから中央線の終わりまでの前向きの距離）
+// ① 古い車線からはみ出さないか（s0 = 曲がり始めから合流部分の始まりまでの前向きの距離。マイナスならもう合流部分にいる）
+// レーンチェンジでは、センサの腕と先も区間の外に出てはいけない（角の2か所に棒が立つ）。
+// 腕は車体の前（CAR_FRONT_M）からセンサまでの真ん中の線、先はセンサの基板の左右の端（SENSOR_HALF_WIDTH_M）
+#define LANE_ARM_N 4
+static float lane_arm_fwd(int i) { return CAR_FRONT_M + (SENSOR_TO_REAR_AXLE_M - CAR_FRONT_M) * (i + 1) / (LANE_ARM_N + 1); }
+
 int lane_old_ok(float r, float len, float d, float x_start, float s0) {
     const float limit = COURSE_WIDTH_M * 0.5f - COURSE_MARGIN_M;
     float x;
     if (scurve_corner_x(r, len, d, s0, 0.0f, CAR_HALF_WIDTH_M, &x) && x_start + x > limit) return 0;
     if (scurve_corner_x(r, len, d, s0, CAR_FRONT_M, CAR_HALF_WIDTH_M, &x) && x_start + x > limit) return 0;
+    for (int i = 0; i < LANE_ARM_N; i++) {
+        if (scurve_corner_x(r, len, d, s0, lane_arm_fwd(i), 0.0f, &x) && x_start + x > limit) return 0;
+    }
+    return 1;
+}
+
+// センサの先（車線を変える側の端）が、新しい車線の向こう側の端（LANE_SHIFT_M + w/2 − m）を越えないか
+//   一番外へ出るのは、向きのずれが大きい1つ目の円弧の終わりのあたり。円弧の上の何か所かで調べる
+int lane_outer_ok(float r, float len, float d, float x_start) {
+    const float limit = LANE_SHIFT_M + COURSE_WIDTH_M * 0.5f - COURSE_MARGIN_M;
+    for (int i = 2; i <= 8; i++) {
+        float f = len * 0.1f * i;
+        float sa = scurve_sin(r, len, f);
+        float ca = sqrtf(1.0f - sa * sa);
+        float x = scurve_x(r, len, f, d) + SENSOR_TO_REAR_AXLE_M * sa + SENSOR_HALF_WIDTH_M * ca;
+        if (x_start + x > limit) return 0;
+    }
     return 1;
 }
 
@@ -234,6 +256,10 @@ int lane_new_ok(float r, float len, float d, float x_start, float f_end) {
     float x;
     if (!scurve_corner_x(r, len, d, f_end, 0.0f, -CAR_HALF_WIDTH_M, &x) || x_start + x < limit) return 0;
     if (!scurve_corner_x(r, len, d, f_end, CAR_FRONT_M, -CAR_HALF_WIDTH_M, &x) || x_start + x < limit) return 0;
+    for (int i = 0; i < LANE_ARM_N; i++) {
+        if (!scurve_corner_x(r, len, d, f_end, lane_arm_fwd(i), 0.0f, &x) || x_start + x < limit) return 0;
+    }
+    if (!scurve_corner_x(r, len, d, f_end, SENSOR_TO_REAR_AXLE_M, -SENSOR_HALF_WIDTH_M, &x) || x_start + x < limit) return 0;
     return 1;
 }
 
@@ -262,7 +288,7 @@ int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* le
     for (int k = 0; k <= 8; k++) {               // 曲がり始める前に直進する距離 wait を 0, 1cm, 2cm … と試す
         float wait = k * 0.010f;
         float u = v * delay + wait;              // センサが中央線の終わりを見つけてから、実際に曲がり始めるまでの距離
-        float s0 = SENSOR_TO_REAR_AXLE_M - u;
+        float s0 = SENSOR_TO_REAR_AXLE_M - LANE_PRE_M - u;   // 合流部分は中央線が切れる所の LANE_PRE_M 手前から始まる
         float f_end = SENSOR_TO_REAR_AXLE_M + LANE_SECTION_M - u;
         if (f_end <= 0.0f) return 0;
         // ②を満たす一番長い L を二分法で求める（短いほど早く横に動き終わるので②は満たしやすい）
@@ -274,6 +300,7 @@ int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* le
         }
         float r = lane_r_for(lo, d);
         if (r < radius_of_angle(SERVO_MAX_ANGLE)) return 0;
+        if (!lane_outer_ok(r, lo, d, x_start)) return 0;   // 一番長い（緩い）経路でもセンサの先が外へ出るなら、短い経路はもっと出る
         if (lane_old_ok(r, lo, d, x_start, s0)) {
             *r_out = r;
             *len_out = lo;
@@ -282,6 +309,36 @@ int lane_plan_delay(float v, float delay, float x_start, float* r_out, float* le
         }
     }
     return 0;
+}
+
+//**********************************************************************
+// クイッと曲がる経路（LANE_QUICK_LAT_MPS2）
+//   速さ v で、横の加速度がちょうど LANE_QUICK_LAT_MPS2 になる半径 r = v² ÷ a の S字にする（一番緩い経路 len_lo より短い）。
+//   長さは 2R(1 − cos φ) = d、2R·sin φ = L から L = √(4dR − d²)。曲がり始める所は一番緩い経路と同じ（wait）。
+//   短いほど早く新しい車線に入り終える（区間の終わり・2本目の棒には余裕が増える）が、向きのずれが大きくなるので、
+//   古い車線の端（1本目の棒）とセンサの先（新しい車線の向こう側の端）を調べ、越えるなら越えない長さまで延ばす
+//**********************************************************************
+static int lane_quick_ok(float len, float d, float x_start, float s0, float f_end) {
+    float r = lane_r_for(len, d);
+    return lane_old_ok(r, len, d, x_start, s0) && lane_outer_ok(r, len, d, x_start) && lane_new_ok(r, len, d, x_start, f_end);
+}
+
+float lane_quick_len(float v, float d, float x_start, float r_lo, float len_lo, float wait) {
+    float rq = v * v / LANE_QUICK_LAT_MPS2;
+    float rmin = radius_of_angle(LANE_QUICK_MAX_ANGLE);
+    if (rq < rmin) rq = rmin;
+    if (rq >= r_lo || 4.0f * d * rq <= d * d) return len_lo;
+    float lq = sqrtf(4.0f * d * rq - d * d);
+    float u = wait + v * servo_delay_s(angle_for_radius(rq));
+    float s0 = SENSOR_TO_REAR_AXLE_M - LANE_PRE_M - u;
+    float f_end = SENSOR_TO_REAR_AXLE_M + LANE_SECTION_M - u;
+    if (lane_quick_ok(lq, d, x_start, s0, f_end)) return lq;
+    float lo = lq, hi = len_lo;                    // 越えない一番短い長さを二分法で探す
+    for (int i = 0; i < 10; i++) {
+        float mid = (lo + hi) * 0.5f;
+        if (lane_quick_ok(mid, d, x_start, s0, f_end)) hi = mid; else lo = mid;
+    }
+    return hi;
 }
 
 int lane_plan(float v, float x_start, float* r_out, float* len_out, float* wait_out) {
@@ -347,6 +404,9 @@ void plan_setup(void) {
 #endif
     crank_entry_mps = (CRANK_ENTRY_MPS > 0.0f) ? CRANK_ENTRY_MPS : crank_turn_speed_auto();
     lane_entry_mps  = (LANE_ENTRY_MPS  > 0.0f) ? LANE_ENTRY_MPS  : lane_turn_speed_auto();
+#if USE_NEW_LANE_SNAP
+    if (LANE_SNAP_MPS > 0.0f) lane_entry_mps = LANE_SNAP_MPS;   // グイッと曲がる前に落とす速さ
+#endif
     pursuit_ld = pursuit_lookahead_m();
     obs_k_lim = 2.0f / radius_of_angle(SERVO_MAX_ANGLE);
 
