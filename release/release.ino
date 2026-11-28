@@ -23,6 +23,9 @@ const char *C_TIME = __TIME__;          //                         コンパイ�
 
 #define KANSOU_TIME 50000
 
+// クロスライン通過時間15ms以下で、減速後に再加速する際の最終出力（DIP補正前）。
+const int CRANK_FAST_APPROACH_POWER = 83;
+
 // 右レーンチェンジ。時間は元のレーンの白線が途切れた時点から数える。
 const int RIGHT_LANE_TURN_DEG = 19;                 // 渡り始めの右舵
 const int RIGHT_LANE_SEARCH_DEG = 10;               // 右レーンの中央線を探す間の右舵
@@ -669,20 +672,27 @@ switch( pattern ) {
           if( check_shasenhenkouh() ) {cnt1 = 0;pattern = 500;break;} /* 左車線変更ラインチェック  */
           
           c = sensor_inp( MASK4_4 );
+          // 単独点灯でもセンサー位置に応じた既存の操舵・内輪出力を使う。
           switch( sensor_inp( MASK4_4 ) ) {
 
                   case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */                            
+                  case 0x08:
                   case 0x1c:ha(   2 );sp(  100 ,  100 );break;                      /* 車体の右方向補正 */                            
                   case 0x0c:ha(   7 );sp(  100 ,   87 );break;                      /* 微程度の右曲がり */                           
+                  case 0x04:
                   case 0x0e:ha(  12 );sp(  100 ,   74 );break;                      /* 微程度の右曲がり */                           
                   case 0x06:ha(  16 );sp(  100 ,   61 );break;                      /* 小程度の右曲がり */                            
+                  case 0x02:
                   case 0x07:ha(  20 );sp(  100 ,   48 );break;                      /* 中程度の右曲がり */                            
 				          case 0x03:ha(  24 );sp(  100 ,   35 );cnt1 = 0;pattern = 35;break;/* 大程度の右曲がり */
                             
+                  case 0x10:
                   case 0x38:ha(  -2 );sp(  100 ,  100 );break;                      /* 車体の左方向補正 */                            
 				          case 0x30:ha(  -7 );sp(   87 ,  100 );break;                      /* 微程度の左曲がり */                            
+				          case 0x20:
 				          case 0x70:ha( -12 );sp(   74 ,  100 );break;                      /* 微程度の左曲がり */                            
 				          case 0x60:ha( -16 );sp(   61 ,  100 );break;                      /* 小程度の左曲がり */                            
+                  case 0x40:
                   case 0xe0:ha( -20 );sp(   48 ,  100 );break;                      /* 中程度の左曲がり */                           
                   case 0xc0:ha( -24 );sp(   35 ,  100 );cnt1 = 0;pattern = 45;break;/* 大程度の左曲がり */
                   default:break;
@@ -5201,9 +5211,7 @@ void newcrank( void )
     else if(cnt1 < 363 ){sp(   65 ,   65 );}
     else if(cnt1 < 379 ){sp(   71 ,   71 );}
     else if(cnt1 < 395 ){sp(   77 ,   77 );}
-    else if(cnt1 < 411 ){sp(   83 ,   83 );}
-    else if(cnt1 < 427 ){sp(   89 ,   89 );}
-                   else {sp(   95 ,   95 );}
+                   else {sp( CRANK_FAST_APPROACH_POWER , CRANK_FAST_APPROACH_POWER );}
     }
     else if( kyoritime <=  12 ){     /* クロスライン通過後の減速制御 */
          if(cnt1 <  24 ){sp(  100 ,  100 );}
@@ -5228,9 +5236,7 @@ void newcrank( void )
     else if(cnt1 < 363 ){sp(   65 ,   65 );}
     else if(cnt1 < 379 ){sp(   71 ,   71 );}
     else if(cnt1 < 395 ){sp(   77 ,   77 );}
-    else if(cnt1 < 411 ){sp(   83 ,   83 );}
-    else if(cnt1 < 427 ){sp(   89 ,   89 );}
-                   else {sp(   95 ,   95 );}
+                   else {sp( CRANK_FAST_APPROACH_POWER , CRANK_FAST_APPROACH_POWER );}
     }
     else if( kyoritime <=  13 ){     /* クロスライン通過後の減速制御 */
          if(cnt1 <  30 ){sp(  100 ,  100 );}
@@ -5254,9 +5260,7 @@ void newcrank( void )
     else if(cnt1 < 363 ){sp(   65 ,   65 );}
     else if(cnt1 < 379 ){sp(   71 ,   71 );}
     else if(cnt1 < 395 ){sp(   77 ,   77 );}
-    else if(cnt1 < 411 ){sp(   83 ,   83 );}
-    else if(cnt1 < 427 ){sp(   89 ,   89 );}
-                   else {sp(   95 ,   95 );}
+                   else {sp( CRANK_FAST_APPROACH_POWER , CRANK_FAST_APPROACH_POWER );}
     }
     else if( kyoritime <=  14 ){     /* クロスライン通過後の減速制御 */
          if(cnt1 <  36 ){sp(  100 ,  100 );}
@@ -5279,9 +5283,7 @@ void newcrank( void )
     else if(cnt1 < 363 ){sp(   65 ,   65 );}
     else if(cnt1 < 379 ){sp(   71 ,   71 );}
     else if(cnt1 < 395 ){sp(   77 ,   77 );}
-    else if(cnt1 < 411 ){sp(   83 ,   83 );}
-    else if(cnt1 < 427 ){sp(   89 ,   89 );}
-                   else {sp(   95 ,   95 );}
+                   else {sp( CRANK_FAST_APPROACH_POWER , CRANK_FAST_APPROACH_POWER );}
     }
     else if( kyoritime <=  15 ){     /* クロスライン通過後の減速制御 */
          if(cnt1 <  42 ){sp(  100 ,  100 );}
@@ -5303,9 +5305,7 @@ void newcrank( void )
     else if(cnt1 < 363 ){sp(   65 ,   65 );}
     else if(cnt1 < 379 ){sp(   71 ,   71 );}
     else if(cnt1 < 395 ){sp(   77 ,   77 );}
-    else if(cnt1 < 411 ){sp(   83 ,   83 );}
-    else if(cnt1 < 427 ){sp(   89 ,   89 );}
-                   else {sp(   95 ,   95 );}
+                   else {sp( CRANK_FAST_APPROACH_POWER , CRANK_FAST_APPROACH_POWER );}
     }
     else if( kyoritime <=  16 ){     /* クロスライン通過後の減速制御 */
          if(cnt1 <  48 ){sp(  100 ,  100 );}
