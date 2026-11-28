@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>release.ino の模擬</title>
+<!-- tools/course_sim/web/build_release.py が、このファイルに模擬のプログラム（release/release.ino と course_sim.cpp の WebAssembly）を埋め込んで
+     tools/course_sim/release_simulator.html（GitHub Actions は public ブランチの release-sim/index.html）を作る。このファイルを直接開いても動かない。
+     basic/ 用のシミュレータ（simulator_template.html）を元にした別のページ -->
+<style>
+  :root {
+    --bg: #f2f3f5; --panel: #ffffff; --text: #1d232b; --sub: #5d6773; --line: #d9dde3; --accent: #2f6fd6; --accent-bg: #e6eefb;
+    --field: #7d8c7a; --surface: #23272c; --white: #f2f2f2; --gray: #8b9097; --cursor: #d43d3d; --warn: #c0352b; --ok: #1f8a4c; --changed: #fff1b8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171b; --panel: #1e2328; --text: #e7eaee; --sub: #9aa4af; --line: #343b43; --accent: #6ea2f5; --accent-bg: #23344f;
+      --field: #3d4a3b; --warn: #ff8a80; --ok: #6fd39a; --changed: #4d4420; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; display: flex; flex-direction: column; }
+  input, select, button { font: inherit; color: var(--text); }
+  button { padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.tiny { padding: 0 5px; font-size: 11px; border-radius: 4px; line-height: 18px; }
+  input[type=number], input[type=text], select { background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px; }
+  input[type=number] { width: 66px; text-align: right; }
+  input[type=number]::placeholder { color: var(--sub); opacity: .75; }
+  input.changed { background: var(--changed); }
+  input[type=checkbox] { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+  code { font: 11px ui-monospace, Consolas, monospace; color: var(--sub); }
+  .sw { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; flex: none; }
+
+  /* ---------- 上の帯 ---------- */
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px; }
+  header h1 { font-size: 15px; margin: 0; white-space: nowrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); flex-wrap: wrap; }
+  .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); padding: 5px 11px; background: transparent; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .seg button kbd { font: 10px ui-monospace, monospace; opacity: .6; margin-left: 3px; }
+  #buildInfo { margin-left: auto; color: var(--sub); font-size: 11px; }
+  header a { color: var(--accent); font-size: 12px; }
+
+  /* ---------- 3列 ---------- */
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: 390px minmax(0, 1fr) 290px; gap: 10px; padding: 0 10px 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-height: 0; }
+  .col { display: flex; flex-direction: column; min-height: 0; }
+
+  /* 左：設定 */
+  #settings { display: flex; flex-direction: column; overflow: hidden; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; padding: 8px 4px; color: var(--sub); border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tabs button .n { font-size: 10px; background: var(--changed); color: var(--text); border-radius: 8px; padding: 0 5px; margin-left: 3px; }
+  .pane { flex: 1; overflow: auto; padding: 8px 10px; display: none; }
+  .pane.on { display: block; }
+  .foot { border-top: 1px solid var(--line); padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .note { font-size: 12px; color: var(--sub); margin: 4px 0 8px; }
+  table.mx { border-collapse: collapse; width: 100%; }
+  table.mx th, table.mx td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+  table.mx thead th { position: sticky; top: -8px; background: var(--panel); z-index: 1; font-weight: 600; }
+  table.mx td.c, table.mx th.c { text-align: center; width: 1%; white-space: nowrap; }
+  table.mx td.lab { line-height: 1.25; }
+  table.mx tr.sec td { background: var(--bg); font-weight: 600; color: var(--sub); font-size: 12px; padding: 5px 4px; }
+  table.mx tr.on td.lab { font-weight: 600; }
+  .cmt { font-size: 11px; color: var(--sub); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .err { color: var(--warn); font-size: 12px; margin: 6px 0; }
+  .filter { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .filter input[type=text] { flex: 1; min-width: 120px; }
+  .opt { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .opt .k { line-height: 1.25; }
+  h3 { font-size: 12px; color: var(--sub); margin: 12px 0 4px; }
+  h3:first-child { margin-top: 2px; }
+  label.chk { display: flex; gap: 6px; align-items: flex-start; margin: 6px 0; font-size: 12px; color: var(--sub); }
+  label.chk input { margin-top: 2px; }
+
+  /* 中：コースとグラフ */
+  #viewWrap { position: relative; flex: 1; min-height: 240px; overflow: hidden; }
+  #view { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  .overlay { position: absolute; font-size: 11px; color: #f0f0f0; background: rgba(0,0,0,.5); padding: 2px 7px; border-radius: 4px; pointer-events: none; }
+  #hint { left: 8px; bottom: 8px; }
+  #status { left: 8px; top: 8px; display: none; font-size: 12px; }
+  #controls { margin-top: 8px; padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  #play { min-width: 84px; }
+  #seek { flex: 1 1 100px; min-width: 80px; accent-color: var(--accent); }
+  #time { font-variant-numeric: tabular-nums; min-width: 58px; text-align: right; font-weight: 600; }
+  #controls label { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+  #chartWrap { margin-top: 8px; height: 250px; flex: none; }
+  #chart { width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+  /* 右：結果 */
+  #results { overflow: auto; padding: 8px 10px; }
+  #results h2 { font-size: 12px; color: var(--sub); margin: 0 0 4px; font-weight: 600; }
+  .rc { border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 7px; padding: 7px 8px; margin: 8px 0; }
+  .rc.hidden { opacity: .5; }
+  .rh { display: flex; gap: 6px; align-items: center; }
+  .rh input[type=text] { flex: 1; min-width: 0; font-weight: 600; background: transparent; border-color: transparent; padding: 1px 3px; }
+  .rh input[type=text]:hover, .rh input[type=text]:focus { border-color: var(--line); background: var(--bg); }
+  .big { font-size: 17px; font-weight: 700; margin: 3px 0 1px; font-variant-numeric: tabular-nums; }
+  .big.ok { color: var(--ok); } .big.bad { color: var(--warn); }
+  .det { font-size: 11px; color: var(--sub); }
+  .avg { font-size: 12px; margin-top: 3px; padding: 2px 6px; background: var(--accent-bg); border-radius: 4px; }
+  .ptn { font-size: 12px; margin-top: 6px; font-weight: 600; }
+  table.vals { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 12px; width: 100%; line-height: 1.35; }
+  table.vals td { padding: 0 6px 0 0; }
+  table.vals td:first-child { color: var(--sub); white-space: nowrap; }
+
+  /* 画面が狭いとき */
+  @media (max-width: 1250px) {
+    body { display: block; }
+    main { grid-template-columns: 350px minmax(0, 1fr); align-items: start; }
+    #settings { grid-row: 1 / span 2; position: sticky; top: 8px; height: calc(100vh - 16px); }
+    #viewWrap { flex: none; height: 52vh; }
+    #results { grid-column: 2; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0 8px; }
+    #results h2 { grid-column: 1 / -1; }
+    #results .rc { margin: 4px 0; }
+  }
+  @media (max-width: 780px) {
+    main { display: flex; flex-direction: column; }
+    #settings { position: static; height: auto; max-height: 70vh; }
+    #viewWrap { height: 55vh; flex: none; }
+    #results { max-height: none; display: block; }
+    #buildInfo { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>release.ino の模擬</h1>
+  <div class="seg" id="courseSeg"></div>
+  <span id="buildInfo"></span>
+  <a href="../">道具の選択に戻る</a>
+</header>
+<main>
+  <div class="card" id="settings">
+    <div class="tabs">
+      <button data-tab="cfg">release.ino の値<span class="n" id="nCfg"></span></button>
+      <button data-tab="env">コースと車<span class="n" id="nEnv"></span></button>
+    </div>
+    <div class="pane" id="pane-cfg">
+      <div class="filter">
+        <input type="text" id="cfgFilter" placeholder="名前や説明で絞り込む（例: BRAKE）">
+        <label class="chk" style="margin:0"><input type="checkbox" id="cfgOnlyChanged">変えた値だけ</label>
+      </div>
+      <div class="note">列が1つの走り（release.ino の1通りの書き方）です。空欄は release.ino の初期値で、変えた値は黄色になります。release.ino の先頭の const int の値を変えられます（表 newcrank()・shasenhenkou() などは release.ino のまま）。「＋ 走りを追加」で、値を変えた走りと並べて比べられます。</div>
+      <table class="mx" id="cfgTable"></table>
+    </div>
+    <div class="pane" id="pane-env">
+      <h3>コース</h3>
+      <div id="courseOpts"></div>
+      <label class="chk" id="syncRow"><input type="checkbox" id="syncDist">ハーフラインの幅（上の値）を release.ino の HALF_LINE_WIDTH_MM にも入れる。外すと、コースの線の幅だけが違う場合を試せます</label>
+      <h3>車の本当の値</h3>
+      <div class="note">空欄は初期値（release.ino の車を実車の記録に合わせた値。tools/course_sim/release_sim/config.h）。すべての走りに同じ値を使います。<br>
+        ・左右の後輪を別々に計算（1）：クランクで内側の車輪を逆転させる走りのため。出力の大きさが「走らない出力」以下では、モータに電圧がかからないとして計算します。<br>
+        ・コースアウトは、前輪の軸の中心と後輪の軸の中心がコースの外に出た時です（判定の幅 0）。basic の模擬と同じ車輪の外側の角で見るときは、前の端 0.18・幅の半分 0.09 にします。その場合、センサが後輪から 0.37 前にあるので、半径 0.60 のカーブを線どおりに回るだけで内側の車輪がコースの端を越えます。<br>
+        ・レーンチェンジでは、センサの腕と先もコースの外に出てはいけません（角の2か所に棒が立つ）。</div>
+      <div id="carOpts"></div>
+    </div>
+    <div class="foot">
+      <button id="addRun">＋ 走りを追加</button>
+      <button id="avg7" title="スタートの位置を 1.400〜1.500m の7通りに変えて走らせ、平均を出します">7通りの平均</button>
+      <button id="resetAll" style="margin-left:auto">初期値に戻す</button>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card" id="viewWrap"><canvas id="view"></canvas><div class="overlay" id="status"></div>
+      <div class="overlay" id="hint">ホイール: 拡大　ドラッグ: 移動　ダブルクリック: 全体　スペース: 再生　←→: 10ms　1〜8: コース</div></div>
+    <div class="card" id="controls">
+      <button id="play" class="primary">▶ 再生</button>
+      <button id="back" title="10ms 戻す（←、Shift+← で 100ms）">−10</button>
+      <button id="fwd" title="10ms 進める（→、Shift+→ で 100ms）">＋10</button>
+      <input type="range" id="seek" min="0" max="1000" value="0">
+      <span id="time">0 ms</span>
+      <label>速さ <select id="rate"><option>0.05</option><option>0.1</option><option selected>0.25</option><option>0.5</option><option>1</option></select>倍</label>
+      <label><input type="checkbox" id="follow">車を追う</label>
+      <label><input type="checkbox" id="trail" checked>通り道</label>
+    </div>
+    <div class="card" id="chartWrap"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="card" id="results"><h2>結果と、今の時刻の値</h2><div id="cards"></div></div>
+</main>
+<script>
+// __BUILD_DATA__
+</script>
+<script>
+"use strict";
+const SRC = { wasm: WASM_B64, items: CFG_ITEMS, build: BUILD };
+
+// ================= 模擬のプログラム（WebAssembly）を動かす =================
+class ExitSignal { constructor(code) { this.code = code; } }
+let MOD = null;
+async function loadModule() {
+  const bin = Uint8Array.from(atob(SRC.wasm), c => c.charCodeAt(0));
+  MOD = await WebAssembly.compile(bin);
+}
+// cfg: CFG_ITEMS と同じ並びの数値、args: course_sim に渡す引数。戻り値は出力の文字列
+async function runSim(cfg, args) {
+  const enc = new TextEncoder(), argv = ["sim", ...args].map(a => enc.encode(a + "\0"));
+  const chunks = []; let mem;
+  const dv = () => new DataView(mem.buffer);
+  const wasi = {
+    args_sizes_get(pc, pb) { dv().setUint32(pc, argv.length, true); dv().setUint32(pb, argv.reduce((s, a) => s + a.length, 0), true); return 0; },
+    args_get(pp, pb) { const u = new Uint8Array(mem.buffer); for (const a of argv) { dv().setUint32(pp, pb, true); pp += 4; u.set(a, pb); pb += a.length; } return 0; },
+    fd_write(fd, iov, n, pn) {
+      let tot = 0; const v = dv();
+      for (let k = 0; k < n; k++) {
+        const p = v.getUint32(iov + 8 * k, true), l = v.getUint32(iov + 8 * k + 4, true);
+        chunks.push(new Uint8Array(mem.buffer, p, l).slice()); tot += l;
+      }
+      v.setUint32(pn, tot, true); return 0;
+    },
+    fd_close() { return 0; },
+    fd_seek() { return 70; },
+    fd_fdstat_get(fd, p) { const v = dv(); v.setUint8(p, 2); v.setUint16(p + 2, 0, true); v.setBigUint64(p + 8, 0n, true); v.setBigUint64(p + 16, 0n, true); return 0; },
+    proc_exit(c) { throw new ExitSignal(c); },
+  };
+  const inst = await WebAssembly.instantiate(MOD, { wasi_snapshot_preview1: wasi });
+  mem = inst.exports.memory;
+  new Float32Array(mem.buffer, inst.exports.cfg_ptr(), cfg.length).set(cfg);
+  try { inst.exports._start(); } catch (e) { if (!(e instanceof ExitSignal)) throw e; }
+  let len = 0; for (const c of chunks) len += c.length;
+  const all = new Uint8Array(len); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+  return new TextDecoder().decode(all);
+}
+function parseOutput(text) {
+  const r = { course: null, car: null, s: [], result: "" };
+  for (const line of text.split("\n")) {
+    if (line.startsWith("#S ")) r.s.push(line.slice(3).split(",").map(Number));
+    else if (line.startsWith("#COURSE ")) r.course = JSON.parse(line.slice(8));
+    else if (line.startsWith("#CAR ")) r.car = JSON.parse(line.slice(5));
+    else if (line.trim()) r.result = line.trim();
+  }
+  const m = re => (r.result.match(re) || [])[1];
+  r.out = r.result.includes("コースアウト");
+  r.goal = m(/ゴール\s+(\d+) ms/);
+  r.outT = m(/コースアウト\s+(\d+) ms/);
+  r.lat = +(m(/横G\s+(\d+)%/) || 0);
+  r.vpeak = m(/最高\s+([\d.]+) m\/s/);
+  r.ev = r.result.match(/曲がり始め p=(\d+) ([\d.]+) m\/s/);
+  r.slip = m(/横すべり\s+(\d+) ms/);
+  r.wob = m(/揺れ\s+(\d+)回/);
+  r.ptns = (m(/pattern:\s*(.*)$/) || "").trim();
+  return r;
+}
+
+// ================= 設定 =================
+const ITEMS = SRC.items.map((it, i) => Object.assign({ i }, it));
+const BY_NAME = Object.fromEntries(ITEMS.map(it => [it.name, it]));
+const CFG_LIST = ITEMS;
+const COURSES = [["crank_l", "左クランク"], ["crank_r", "右クランク"], ["lane_l", "左レーン"], ["lane_r", "右レーン"], ["curve_l", "左カーブ"], ["curve_r", "右カーブ"], ["s_l", "左S字"], ["s_r", "右S字"]];
+const CD = CAR_DEFS;
+// course_sim の「本当の値」。def は初期値（by はコースの種類ごとの初期値。初期値でもいつも course_sim に渡す）
+const COURSE_OPTS = [
+  { k: "approach", label: "スタートから特別な線（カーブは入口）まで [m]", def: 1.5 },
+  { k: "cross_to", label: "クロスラインの終わりから、曲がった後の車線の中心線まで [m]（規則 0.5〜1.0。ao のコース：幅 20/30/40mm → 0.8/0.7/0.6）", def: CD.CROSS_TO_CRANK_M, only: "crank" },
+  { k: "half_to", label: "ハーフラインの終わりから中央線の切れ目まで [m]（規則：合流部分まで 0.3〜1.0 ＋ 合流部分の始まりから切れ目まで）", def: CD.HALF_TO_LANE_M, only: "lane" },
+  { k: "lane_pre", label: "合流部分の始まりから中心線の切れ目まで [m]（規則：合流部分は全部で 0.6、中の線は 0.2 と 0.4）", def: 0.2, only: "lane" },
+  { k: "lane_sec", label: "切れ目から合流部分の終わりまで [m]", def: 0.4, only: "lane" },
+  { k: "lane_new", label: "切れ目から新しい車線の線が始まるまで [m]", def: 0, only: "lane" },
+  { k: "curve_r", label: "カーブの中心線の半径 [m]（180° のカーブ。規則：内側の端の半径 0.45 以上 → 中心線 0.60 以上）", def: 0.60, only: "curve" },
+  { k: "s_rad", label: "S字の円弧の中心線の半径 [m]（規則は 0.60 以上）", def: 0.60, only: "s" },
+  { k: "s_deg", label: "S字の円弧1つで曲がる角度 [度]", def: 90, only: "s" },
+  { k: "line_w", label: "クロスライン・ハーフラインの白の幅 [m]（規則 0.020〜0.040。初期値はクロスライン 0.020、ao のコースのハーフライン 0.040）", by: { crank: 0.020, lane: 0.040 }, only: "crank lane" },
+  { k: "shoulder", label: "路肩の白 30mm（1 あり、0 なし）", def: 1 },
+  { k: "gray_white", label: "中心線の両側の灰色 10mm をセンサが白と見る（1 白、0 黒）", def: 0 },
+  { k: "ms", label: "模擬する時間の上限 [ms]", def: 6000 },
+];
+const CAR_OPTS = [
+  { k: "v_max", label: "出力100%の速さ [m/s]", def: CD.V_MAX_MPS },
+  { k: "tau", label: "速さの時定数 [s]", def: CD.MOTOR_TAU_S },
+  { k: "fric", label: "走らない出力 [%]（出力の大きさがこれ以下ではモータに電圧がかからない）", def: CD.MOTOR_FRICTION_PERCENT },
+  { k: "grip_lat", label: "横のグリップ [m/s²]", def: CD.GRIP_LAT_MPS2 },
+  { k: "grip_long", label: "前後のグリップ [m/s²]（ブレーキの強さの上限）", def: CD.GRIP_LONG_MPS2 },
+  { k: "drive", label: "左右の後輪を別々に計算（1 する、0 左右の平均で計算 = basic の模擬と同じ）", def: CD.SIM_DRIVE_DEFAULT },
+  { k: "servo_dps", label: "サーボの速さ [度/s]", def: CD.SERVO_SPEED_DPS },
+  { k: "servo_dead", label: "サーボの遅れ [s]", def: CD.SERVO_DEAD_S },
+  { k: "steer_gain", label: "タイヤの本当の角度 ÷ 指令の角度", def: 1 },
+  { k: "sensor_to_axle", label: "後輪の軸からセンサまで [m]", def: CD.SENSOR_TO_REAR_AXLE_M },
+  { k: "front", label: "コースアウト判定の前の端 [m]（後輪の軸から。0.16 = 前輪の軸）", def: CD.CAR_FRONT_M },
+  { k: "half_w", label: "コースアウト判定の幅の半分 [m]（0 = 軸の中心）", def: CD.CAR_HALF_WIDTH_M },
+  { k: "spot", label: "センサが白線の外まで白と見る幅 [m]", def: 0.004 },
+  { k: "dip", label: "DIPスイッチ（3 = 出力100%。0〜3 で出力 70〜100%）", def: 3 },
+];
+const COLORS = ["#2f7de1", "#e8772e", "#2aa876", "#b85bd6", "#d94c63", "#8a8f2b"];
+const MAX_RUNS = COLORS.length;
+const letter = ri => String.fromCharCode(65 + ri);
+function defaultState() {
+  return { course: "crank_r", copt: {}, car: {}, sync: true, tab: "env", runs: [{ name: "release.ino", cfg: {} }] };
+}
+const STATE_KEY = "mcr-release-sim-state";
+let S = defaultState();
+try { const j = JSON.parse(localStorage.getItem(STATE_KEY) || "null"); if (j && j.runs && j.runs.length) S = Object.assign(defaultState(), j); } catch (e) { }
+function save() { try { localStorage.setItem(STATE_KEY, JSON.stringify(S)); } catch (e) { } }
+const fmt = v => String(+(+v).toFixed(4));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const kindOf = c => c.replace(/_[lr]$/, "");
+const $ = id => document.getElementById(id);
+const swatch = ri => `<span class="sw" style="background:${COLORS[ri % COLORS.length]}">${letter(ri)}</span>`;
+const optDef = (o, kind) => o.by ? o.by[kind] : o.def;
+
+function numInput(value, placeholder, onchange) {
+  const inp = document.createElement("input");
+  inp.type = "number"; inp.step = "any"; inp.placeholder = placeholder;
+  if (value !== undefined && value !== null && value !== "") { inp.value = value; inp.classList.add("changed"); }
+  inp.onchange = () => { const v = inp.value.trim(); inp.classList.toggle("changed", v !== ""); onchange(v === "" ? undefined : +v); };
+  return inp;
+}
+
+// ---------- 上の帯：コース ----------
+function buildCourseSeg() {
+  const seg = $("courseSeg"); seg.innerHTML = "";
+  COURSES.forEach(([c, name], k) => {
+    const b = document.createElement("button");
+    b.innerHTML = `${name}<kbd>${k + 1}</kbd>`; b.title = `キーボードの ${k + 1} でも選べます`;
+    b.className = S.course === c ? "on" : "";
+    b.onclick = () => setCourse(c);
+    seg.appendChild(b);
+  });
+}
+function setCourse(c) {
+  if (S.course === c) return;
+  S.course = c; buildCourseSeg(); buildEnv(); changed();
+}
+
+// ---------- タブ ----------
+function setTab(tab) {
+  S.tab = tab; save();
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "pane-" + tab));
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+function buildSwitches() { }
+
+// ---------- release.ino の値の表 ----------
+function changedCount(run) { return Object.keys(run.cfg).length; }
+function buildCfg() {
+  const tb = $("cfgTable"); tb.innerHTML = "";
+  const head = document.createElement("thead");
+  head.innerHTML = `<tr><th></th>${S.runs.map((r, ri) => `<th class="c" title="${esc(r.name)}">${swatch(ri)}</th>`).join("")}</tr>`;
+  tb.appendChild(head);
+  const body = document.createElement("tbody");
+  const q = document.createElement("tr");
+  q.innerHTML = `<td class="lab"><span class="cmt">release.ino の初期値に戻す</span></td>` +
+    S.runs.map((r, ri) => `<td class="c"><button class="tiny" data-ri="${ri}">戻す</button></td>`).join("");
+  q.querySelectorAll("button").forEach(b => b.onclick = () => { S.runs[+b.dataset.ri].cfg = {}; buildCfg(); changed(); });
+  body.appendChild(q);
+  const f = $("cfgFilter").value.trim().toLowerCase(), only = $("cfgOnlyChanged").checked;
+  let sec = "";
+  for (const it of CFG_LIST) {
+    if (f && !(it.name.toLowerCase().includes(f) || it.comment.toLowerCase().includes(f) || it.section.toLowerCase().includes(f))) continue;
+    if (only && !S.runs.some(r => r.cfg[it.name] !== undefined)) continue;
+    if (it.section !== sec) {
+      sec = it.section;
+      const h = document.createElement("tr"); h.className = "sec";
+      h.innerHTML = `<td colspan="${S.runs.length + 1}">${esc(sec)}</td>`; body.appendChild(h);
+    }
+    const tr = document.createElement("tr"); tr.title = it.name + "：" + it.comment;
+    const td = document.createElement("td"); td.className = "lab";
+    td.innerHTML = `<code>${it.name}</code>${it.comment ? `<div class="cmt">${esc(it.comment)}</div>` : ""}`;
+    tr.appendChild(td);
+    S.runs.forEach((run, ri) => {
+      const c = document.createElement("td"); c.className = "c";
+      const inp = numInput(run.cfg[it.name], fmt(it.def), v => {
+        if (v === undefined) delete run.cfg[it.name]; else run.cfg[it.name] = it.unsigned ? Math.max(0, Math.round(v)) : Math.round(v);
+        updateCounts(); changed();
+      });
+      inp.title = `${letter(ri)}（${run.name}）の ${it.name}。空欄なら ${fmt(it.def)}`;
+      c.appendChild(inp); tr.appendChild(c);
+    });
+    body.appendChild(tr);
+  }
+  tb.appendChild(body);
+  updateCounts();
+}
+$("cfgFilter").oninput = buildCfg;
+$("cfgOnlyChanged").onchange = buildCfg;
+
+// ---------- コースと車 ----------
+function buildOptRows(el, list, store, filter) {
+  el.innerHTML = "";
+  for (const o of list) {
+    if (filter && o.only && !o.only.split(" ").includes(filter)) continue;
+    const row = document.createElement("label"); row.className = "opt";
+    const ph = fmt(optDef(o, filter));
+    row.innerHTML = `<span class="k">${esc(o.label)}</span>`;
+    row.title = `空欄なら ${ph}`;
+    row.appendChild(numInput(store[o.k], ph, v => { if (v === undefined) delete store[o.k]; else store[o.k] = v; updateCounts(); changed(); }));
+    el.appendChild(row);
+  }
+}
+function buildEnv() {
+  buildOptRows($("courseOpts"), COURSE_OPTS, S.copt, kindOf(S.course));
+  $("syncRow").style.display = (kindOf(S.course) === "lane" && BY_NAME.HALF_LINE_WIDTH_MM) ? "" : "none";
+  $("syncDist").checked = S.sync;
+  buildOptRows($("carOpts"), CAR_OPTS, S.car, null);
+  updateCounts();
+}
+$("syncDist").onchange = e => { S.sync = e.target.checked; changed(); };
+function updateCounts() {
+  const nc = S.runs.reduce((a, r) => a + changedCount(r), 0);
+  $("nCfg").textContent = nc || ""; $("nCfg").style.display = nc ? "" : "none";
+  const kind = kindOf(S.course);
+  const ne = Object.keys(S.car).length + COURSE_OPTS.filter(o => S.copt[o.k] !== undefined && (!o.only || o.only.split(" ").includes(kind))).length;
+  $("nEnv").textContent = ne || ""; $("nEnv").style.display = ne ? "" : "none";
+}
+function buildAll() { buildCourseSeg(); buildCfg(); buildEnv(); setTab(S.tab === "cfg" ? "cfg" : "env"); $("addRun").disabled = S.runs.length >= MAX_RUNS; }
+
+// 走り1つ分の release.ino の値
+function cfgValues(run) {
+  const v = ITEMS.map(it => run.cfg[it.name] ?? it.def);
+  const hl = BY_NAME.HALF_LINE_WIDTH_MM;
+  if (S.sync && hl && kindOf(S.course) === "lane" && run.cfg.HALF_LINE_WIDTH_MM === undefined)
+    v[hl.i] = Math.round((S.copt.line_w ?? optDef(COURSE_OPTS.find(o => o.k === "line_w"), "lane")) * 1000);
+  return v;
+}
+function checkRun(v) { return ""; }
+function simArgs(extra, v) {
+  const a = [S.course];
+  const kind = kindOf(S.course);
+  for (const o of COURSE_OPTS) {
+    if (o.only && !o.only.split(" ").includes(kind)) continue;
+    const val = S.copt[o.k] ?? (o.by ? o.by[kind] : undefined);
+    if (val !== undefined) a.push(`${o.k}=${val}`);
+  }
+  for (const o of CAR_OPTS) if (S.car[o.k] !== undefined) a.push(`${o.k}=${S.car[o.k]}`);
+  return a.concat(extra);
+}
+
+// ================= 走らせる =================
+let D = { runs: [] }, runToken = 0, timer = null, avgRes = {};
+function changed(noRun) {
+  save(); avgRes = {};
+  if (noRun) { renderCards(); draw(); return; }
+  clearTimeout(timer); timer = setTimeout(simulateAll, 120);
+}
+function setStatus(s) { const e = $("status"); e.textContent = s; e.style.display = s ? "block" : "none"; }
+async function simulateAll() {
+  const token = ++runToken, prevCourse = D.courseKey;
+  setStatus("模擬中…");
+  const runs = [], errs = [];
+  for (let ri = 0; ri < S.runs.length; ri++) {
+    const run = S.runs[ri], v = cfgValues(run), err = checkRun(v);
+    if (err) errs.push(`${swatch(ri)} ${esc(err)}`);
+    const r = err ? { s: [], result: "", err, out: false } : parseOutput(await runSim(v, simArgs(["dump=1"], v)));
+    if (token !== runToken) return;
+    r.ri = ri; r.color = COLORS[ri % COLORS.length]; r.show = S.runs[ri].hide ? false : true;
+    runs.push(r);
+  }
+  D = { runs, dump: 1, courseKey: S.course + JSON.stringify(S.copt) };
+  const first = runs.find(r => r.course);
+  D.course = first ? first.course : null;
+  D.diffCourse = runs.some(r => r.course && JSON.stringify(r.course) !== JSON.stringify(D.course));
+  tEnd = Math.max(1, ...runs.map(r => r.s.length ? r.s[r.s.length - 1][0] : 0));
+  t = Math.min(t, tEnd);
+  setStatus(D.diffCourse ? "走りによってコースの形が違います（A のコースを表示）" : "");
+  renderCards(); chartDirty = true;
+  if (D.courseKey !== prevCourse) fitAll(); else draw();
+}
+async function average7() {
+  const btn = $("avg7"); btn.disabled = true;
+  const aps = [1.400, 1.417, 1.433, 1.450, 1.467, 1.483, 1.500];
+  avgRes = {};
+  for (let ri = 0; ri < S.runs.length; ri++) {
+    const run = S.runs[ri], v = cfgValues(run);
+    if (checkRun(v)) continue;
+    let tot = 0, n = 0, fail = 0, lat = 0;
+    for (const ap of aps) {
+      setStatus(`7通りの平均を計算中… ${letter(ri)}（${n + fail + 1}/7）`);
+      const args = simArgs([], v).filter(a => !a.startsWith("approach="));
+      const r = parseOutput(await runSim(v, args.concat([`approach=${ap}`])));
+      if (r.goal) { tot += +r.goal; n++; } else fail++;
+      lat = Math.max(lat, r.lat);
+    }
+    avgRes[ri] = (n ? `7通りの平均 <b>${Math.round(tot / n)} ms</b>` : "7通りとも失敗") + `・失敗 ${fail}/7・横G 最大 ${lat}%`;
+  }
+  setStatus(D.diffCourse ? "走りによってコースの形が違います（A のコースを表示）" : "");
+  btn.disabled = false; renderCards(); draw();
+}
+
+// ================= 右：結果 =================
+const PTN = [
+  [0, 1, "待機"], [20, 25, "通常走行"], [30, 35, "右大曲がり"], [40, 45, "左大曲がり"],
+  [100, 101, "クロスライン"], [102, 102, "クロスラインを読み飛ばす（減速）"], [103, 103, "クロスライン後（減速・クランクを探す）"],
+  [110, 111, "左クランク 曲がる"], [120, 120, "左クランク 中心線に戻る"], [121, 121, "左クランク 外側の線"],
+  [150, 151, "右クランク 曲がる"], [160, 160, "右クランク 中心線に戻る"], [161, 161, "右クランク 外側の線"],
+  [200, 202, "右ハーフライン"], [300, 310, "右レーン 右寄せ（減速）"], [320, 350, "右レーン 渡る"], [400, 410, "右レーン 新しい線に合わせる"],
+  [420, 430, "右レーン 終わりの確認"], [440, 450, "右レーン ふくらみ"],
+  [500, 502, "左ハーフライン"], [600, 610, "左レーン 左寄せ（減速）"], [620, 650, "左レーン 渡る"], [700, 710, "左レーン 新しい線に合わせる"],
+  [720, 730, "左レーン 終わりの確認"], [740, 750, "左レーン ふくらみ"],
+  [800, 801, "停止"], [1001, 1001, "終了"],
+];
+function ptnName(p) { for (const [a, b, n] of PTN) if (p >= a && p <= b) return n; return ""; }
+// 1行の記録: [t, pattern, sensor, x, y, psi, v, steer, cmd, pl, pr, kyoritime, cnt1, lat]（release_sim/stub.cpp が est・dist の列に kyoritime・cnt1 を入れる）
+const I = { t: 0, p: 1, s: 2, x: 3, y: 4, psi: 5, v: 6, st: 7, cmd: 8, pl: 9, pr: 10, est: 11, dist: 12, lat: 13 };
+let t = 0, tEnd = 1, playing = false, lastNow = 0, chartDirty = true;
+function sampleAt(r, tt) { if (!r.s.length) return null; const k = Math.min(r.s.length - 1, Math.max(0, Math.round(tt / D.dump))); return r.s[k]; }
+
+function renderCards() {
+  const box = $("cards"); box.innerHTML = "";
+  D.runs.forEach(r => {
+    const run = S.runs[r.ri]; if (!run) return;
+    const d = document.createElement("div"); d.className = "rc" + (r.show ? "" : " hidden"); d.style.setProperty("--c", r.color);
+    const last = r.s.length ? r.s[r.s.length - 1] : null;
+    let big, cls;
+    if (r.err) { big = "走らせていません"; cls = "bad"; }
+    else if (r.goal) { big = `ゴール ${r.goal} ms`; cls = "ok"; }
+    else if (r.out) { big = `コースアウト ${r.outT} ms`; cls = "bad"; }
+    else if (last && last[I.p] >= 800) { big = `ゴール前に停止 ${last[I.t]} ms`; cls = "bad"; }
+    else { big = "ゴールできず"; cls = "bad"; }
+    const det = r.err ? esc(r.err) : [
+      r.vpeak && `最高 ${r.vpeak} m/s`, r.ev && `曲がり始め p=${r.ev[1]} ${r.ev[2]} m/s`, `横G 最大 ${r.lat}%`, r.slip && `横すべり ${r.slip} ms`, r.wob !== undefined && r.wob !== null && `ハンドルの揺れ ${r.wob}回`].filter(Boolean).join("・");
+    d.innerHTML = `<div class="rh"><input type="checkbox" ${r.show ? "checked" : ""} title="表示する">${swatch(r.ri)}
+        <input type="text" value="${esc(run.name)}" title="名前（書き換えられます）">
+        <button class="tiny" data-a="dup" title="この走りを複製">複製</button><button class="tiny" data-a="del" title="この走りを消す" ${S.runs.length <= 1 ? "disabled" : ""}>×</button></div>
+      <div class="big ${cls}" title="${esc(r.ptns ? "通った pattern: " + r.ptns : "")}">${big}</div><div class="det">${det}</div>
+      ${avgRes[r.ri] ? `<div class="avg">${avgRes[r.ri]}</div>` : ""}
+      <div class="ptn"></div><table class="vals"></table>`;
+    d.querySelector("input[type=checkbox]").onchange = e => { r.show = e.target.checked; run.hide = !r.show; save(); d.classList.toggle("hidden", !r.show); chartDirty = true; draw(); };
+    d.querySelector("input[type=text]").onchange = e => { run.name = e.target.value; save(); buildCfg(); };
+    d.querySelector("[data-a=dup]").onclick = () => addRun(r.ri);
+    d.querySelector("[data-a=del]").onclick = () => { S.runs.splice(r.ri, 1); buildAll(); changed(); };
+    r.ptnEl = d.querySelector(".ptn"); r.valEl = d.querySelector(".vals");
+    box.appendChild(d);
+  });
+  updatePanel();
+}
+function addRun(from) {
+  if (S.runs.length >= MAX_RUNS) return;
+  const src = S.runs[from ?? S.runs.length - 1];
+  S.runs.push({ name: src.name + " の複製", cfg: Object.assign({}, src.cfg) });
+  buildAll(); changed();
+}
+function updatePanel() {
+  $("time").textContent = Math.round(t) + " ms";
+  $("seek").value = Math.round(t / tEnd * 1000);
+  for (const r of D.runs) {
+    if (!r.valEl) continue;
+    const s = sampleAt(r, t);
+    if (!s) { r.valEl.innerHTML = ""; r.ptnEl.textContent = ""; continue; }
+    r.ptnEl.textContent = "pattern " + s[I.p] + "　" + ptnName(s[I.p]);
+    const sens = (s[I.s] | 256).toString(2).slice(1).replace(/1/g, "●").replace(/0/g, "○");
+    const rows = [
+      ["速さ（本当）", s[I.v].toFixed(2) + " m/s"],
+      ["ハンドル 本当 / 指令", s[I.st].toFixed(1) + "° / " + s[I.cmd].toFixed(1) + "°"],
+      ["モータ 左 / 右", s[I.pl] + " / " + s[I.pr] + " %"],
+      ["横G", Math.round(s[I.lat] * 100) + " %"],
+      ["kyoritime・cnt1", s[I.est] + " ms・" + s[I.dist] + " ms"], ["センサ", sens],
+    ];
+    r.valEl.innerHTML = rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
+  }
+}
+
+// ================= 中：コース =================
+const view = $("view"), vctx = view.getContext("2d");
+let cam = { x: 0, y: 1, scale: 200 };
+function bounds() {
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const r of D.runs) for (const s of r.s) { x0 = Math.min(x0, s[I.x]); x1 = Math.max(x1, s[I.x]); y0 = Math.min(y0, s[I.y]); y1 = Math.max(y1, s[I.y]); }
+  if (x0 > x1) { x0 = -0.5; x1 = 0.5; y0 = 0; y1 = 2; }
+  const m = 0.3; return [x0 - m, x1 + m, y0 - m, y1 + m];
+}
+function fitAll() {
+  const [x0, x1, y0, y1] = bounds(), w = view.clientWidth, h = view.clientHeight;
+  cam.scale = Math.min(w / (x1 - x0), h / (y1 - y0)); cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2;
+  $("follow").checked = false; draw();
+}
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  for (const c of [view, chart]) { c.width = Math.max(1, c.clientWidth * dpr); c.height = Math.max(1, c.clientHeight * dpr); }
+  chartDirty = true; draw();
+}
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function shapePath(ctx, sh) {
+  ctx.beginPath();
+  for (const [x0, y0, x1, y1] of sh.rects) ctx.rect(x0, y0, x1 - x0, y1 - y0);
+  for (const [cx, cy, r0, r1, a0, a1] of sh.rings) {
+    ctx.moveTo(cx + r1 * Math.cos(a0), cy + r1 * Math.sin(a0));
+    ctx.arc(cx, cy, r1, a0, a1, false); ctx.arc(cx, cy, r0, a1, a0, true); ctx.closePath();
+  }
+}
+function drawCar(ctx, s, car, color, label, px) {
+  const psi = s[I.psi] * Math.PI / 180, hx = Math.cos(psi), hy = Math.sin(psi), rx = Math.sin(psi), ry = -Math.cos(psi);
+  const P = (f, l) => [s[I.x] + f * hx + l * rx, s[I.y] + f * hy + l * ry];
+  ctx.beginPath();
+  // 車体は車輪の外側まで描く（コースアウトの判定の点は軸の中心なので、その大きさでは線になる）
+  const bw = Math.max(car.half_w, car.tread / 2 + 0.015), bf = Math.max(car.front, car.wheelbase + 0.02);
+  for (const [f, l] of [[0, -bw], [bf, -bw], [bf, bw], [0, bw]]) { const p = P(f, l); ctx.lineTo(p[0], p[1]); }
+  ctx.closePath(); ctx.globalAlpha = 0.25; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.lineWidth = 2 * px; ctx.strokeStyle = color; ctx.stroke();
+  const wheel = (f, l, ang) => {
+    const c = P(f, l), a = psi - ang * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), L = 0.025;
+    ctx.beginPath(); ctx.moveTo(c[0] - ux * L, c[1] - uy * L); ctx.lineTo(c[0] + ux * L, c[1] + uy * L);
+    ctx.lineWidth = 5 * px; ctx.strokeStyle = "#111"; ctx.stroke();
+  };
+  wheel(0, -car.tread / 2, 0); wheel(0, car.tread / 2, 0);
+  wheel(car.wheelbase, -car.tread / 2, s[I.st]); wheel(car.wheelbase, car.tread / 2, s[I.st]);
+  const a = P(0, 0), b = P(car.sensor, 0);
+  ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineWidth = 1.5 * px; ctx.strokeStyle = color; ctx.stroke();
+  for (let k = 0; k < 8; k++) {
+    const p = P(car.sensor, car.sx[k]), on = (s[I.s] >> (7 - k)) & 1;
+    ctx.beginPath(); ctx.arc(p[0], p[1], 3.2 * px, 0, Math.PI * 2);
+    ctx.fillStyle = on ? "#ff3b30" : "#6b7280"; ctx.fill(); ctx.lineWidth = 1 * px; ctx.strokeStyle = "#000"; ctx.stroke();
+  }
+  // 車の文字（A, B ...）
+  const c = P(bf * 0.45, 0);
+  ctx.save(); ctx.translate(c[0], c[1]); ctx.scale(px, -px);
+  ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText(label, 0, 0); ctx.fillStyle = "#fff"; ctx.fillText(label, 0, 0);
+  ctx.restore();
+}
+function draw() {
+  if (!view.width) return;
+  const W = view.width, H = view.height, dpr = window.devicePixelRatio || 1;
+  if ($("follow").checked) {
+    const r = D.runs.find(r => r.show && r.s.length), s = r && sampleAt(r, t);
+    if (s) { cam.x = s[I.x]; cam.y = s[I.y]; }
+  }
+  const k = cam.scale * dpr, px = 1 / k, ctx = vctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = css("--field"); ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(k, 0, 0, -k, W / 2 - cam.x * k, H / 2 + cam.y * k);
+  if (D.course) {
+    shapePath(ctx, D.course.surface); ctx.fillStyle = css("--surface"); ctx.fill();
+    if (D.course.gray) { shapePath(ctx, D.course.gray); ctx.fillStyle = css("--gray"); ctx.fill(); }
+    shapePath(ctx, D.course.white); ctx.fillStyle = css("--white"); ctx.fill();
+  }
+  if ($("trail").checked) {
+    for (const r of D.runs) {
+      if (!r.show || !r.s.length) continue;
+      ctx.beginPath();
+      for (const s of r.s) { if (s[I.t] > t) break; ctx.lineTo(s[I.x], s[I.y]); }
+      ctx.lineWidth = 2 * px; ctx.strokeStyle = r.color; ctx.stroke();
+    }
+  }
+  for (const r of D.runs) {
+    if (!r.show || !r.car) continue;
+    const s = sampleAt(r, t); if (!s) continue;
+    drawCar(ctx, s, r.car, r.color, letter(r.ri), px);
+    if (r.out && t >= r.s[r.s.length - 1][I.t]) {
+      const L = 0.05;
+      ctx.beginPath(); ctx.moveTo(s[I.x] - L, s[I.y] - L); ctx.lineTo(s[I.x] + L, s[I.y] + L); ctx.moveTo(s[I.x] - L, s[I.y] + L); ctx.lineTo(s[I.x] + L, s[I.y] - L);
+      ctx.lineWidth = 4 * px; ctx.strokeStyle = "#ff3b30"; ctx.stroke();
+    }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const barM = cam.scale > 400 ? 0.05 : cam.scale > 120 ? 0.1 : 0.5, bar = barM * k;
+  ctx.fillStyle = "#fff"; ctx.fillRect(W - bar - 14 * dpr, H - 16 * dpr, bar, 3 * dpr);
+  ctx.font = `${11 * dpr}px system-ui`; ctx.textAlign = "right"; ctx.fillText(Math.round(barM * 100) + " cm", W - 14 * dpr, H - 22 * dpr);
+  updatePanel(); drawChart();
+}
+
+// ================= 中：グラフ =================
+const chart = $("chart"), cctx = chart.getContext("2d"), chartBg = document.createElement("canvas");
+const PLOTS = [
+  { name: "速さ [m/s]（本当）", a: I.v, b: -1, lo: 0 },
+  { name: "ハンドル [度]（実線: 本当、点線: 指令）", a: I.st, b: I.cmd, lo: null },
+  { name: "モータ出力 [%]（実線: 左、点線: 右）", a: I.pl, b: I.pr, lo: null },
+  { name: "横G [%]（点線が 100% = グリップの限界）", a: I.lat, b: -1, lo: 0, mul: 100 },
+];
+const chartL = 42, chartR = 10;
+function drawChartBg() {
+  const W = chart.width, H = chart.height, dpr = window.devicePixelRatio || 1;
+  chartBg.width = W; chartBg.height = H;
+  const ctx = chartBg.getContext("2d");
+  const L = chartL * dpr, R = chartR * dpr, ph = H / PLOTS.length, tx = tt => L + (W - L - R) * tt / tEnd;
+  ctx.font = `${11 * dpr}px system-ui`;
+  PLOTS.forEach((pl, j) => {
+    const top = j * ph + 15 * dpr, bot = (j + 1) * ph - 5 * dpr, mul = pl.mul || 1;
+    let lo = Infinity, hi = -Infinity;
+    for (const r of D.runs) if (r.show) for (const s of r.s) for (const c of [pl.a, pl.b]) if (c >= 0) { lo = Math.min(lo, s[c] * mul); hi = Math.max(hi, s[c] * mul); }
+    if (pl.lo !== null) lo = Math.min(lo, pl.lo);
+    if (pl.mul) hi = Math.max(hi, 110);
+    if (!(hi > lo)) { lo = 0; hi = 1; }
+    const ty = v => bot - (bot - top) * (v - lo) / (hi - lo);
+    ctx.fillStyle = css("--sub"); ctx.textAlign = "left"; ctx.fillText(pl.name, L, top - 4 * dpr);
+    ctx.textAlign = "right"; ctx.fillText(hi.toFixed(Math.abs(hi) < 10 ? 1 : 0), L - 4 * dpr, top + 8 * dpr); ctx.fillText(lo.toFixed(Math.abs(lo) < 10 ? 1 : 0), L - 4 * dpr, bot);
+    ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(L, top, W - L - R, bot - top);
+    if (pl.mul) { ctx.setLineDash([2 * dpr, 3 * dpr]); ctx.beginPath(); ctx.moveTo(L, ty(100)); ctx.lineTo(W - R, ty(100)); ctx.stroke(); ctx.setLineDash([]); }
+    for (const r of D.runs) {
+      if (!r.show) continue;
+      for (const [c, dash] of [[pl.a, []], [pl.b, [4 * dpr, 3 * dpr]]]) {
+        if (c < 0) continue;
+        ctx.setLineDash(dash); ctx.beginPath();
+        for (const s of r.s) ctx.lineTo(tx(s[I.t]), ty(s[c] * mul));
+        ctx.strokeStyle = r.color; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+  });
+  chartDirty = false;
+}
+function drawChart() {
+  if (chartDirty || chartBg.width !== chart.width || chartBg.height !== chart.height) drawChartBg();
+  const W = chart.width, H = chart.height, dpr = window.devicePixelRatio || 1, ctx = cctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.drawImage(chartBg, 0, 0);
+  const L = chartL * dpr, R = chartR * dpr, x = L + (W - L - R) * t / tEnd;
+  ctx.strokeStyle = css("--cursor"); ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+}
+function seekChart(e) {
+  const dpr = window.devicePixelRatio || 1, x = (e.offsetX * dpr - chartL * dpr) / (chart.width - (chartL + chartR) * dpr);
+  setT(Math.max(0, Math.min(1, x)) * tEnd);
+}
+chart.addEventListener("pointerdown", seekChart);
+chart.addEventListener("pointermove", e => { if (e.buttons) seekChart(e); });
+
+// ================= 操作 =================
+function setT(v) { t = Math.max(0, Math.min(tEnd, v)); draw(); }
+function step(now) {
+  if (!playing) return;
+  t += (now - lastNow) * parseFloat($("rate").value); lastNow = now;
+  if (t >= tEnd) { t = tEnd; setPlaying(false); }
+  draw(); if (playing) requestAnimationFrame(step);
+}
+function setPlaying(p) {
+  playing = p; $("play").textContent = p ? "❚❚ 止める" : "▶ 再生";
+  if (p) { if (t >= tEnd) t = 0; lastNow = performance.now(); requestAnimationFrame(step); }
+}
+$("play").onclick = () => setPlaying(!playing);
+$("back").onclick = () => setT(t - 10);
+$("fwd").onclick = () => setT(t + 10);
+$("seek").oninput = e => setT(e.target.value / 1000 * tEnd);
+$("follow").onchange = draw;
+$("trail").onchange = draw;
+document.addEventListener("keydown", e => {
+  const tag = e.target.tagName;
+  if ((tag === "INPUT" && !["checkbox", "range"].includes(e.target.type)) || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  else if (e.code === "ArrowLeft") { e.preventDefault(); setT(t - (e.shiftKey ? 100 : 10)); }
+  else if (e.code === "ArrowRight") { e.preventDefault(); setT(t + (e.shiftKey ? 100 : 10)); }
+  else if (/^Digit[1-8]$/.test(e.code)) setCourse(COURSES[+e.code.slice(5) - 1][0]);
+});
+view.addEventListener("wheel", e => {
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * 0.0015), rect = view.getBoundingClientRect();
+  const mx = (e.clientX - rect.left - rect.width / 2) / cam.scale, my = -(e.clientY - rect.top - rect.height / 2) / cam.scale;
+  if (!$("follow").checked) { cam.x += mx * (1 - 1 / f); cam.y += my * (1 - 1 / f); }
+  cam.scale = Math.max(20, Math.min(5000, cam.scale * f)); draw();
+}, { passive: false });
+let drag = null;
+view.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; view.setPointerCapture(e.pointerId); view.style.cursor = "grabbing"; });
+view.addEventListener("pointermove", e => {
+  if (!drag) return;
+  $("follow").checked = false;
+  cam.x -= (e.clientX - drag.x) / cam.scale; cam.y += (e.clientY - drag.y) / cam.scale; drag = { x: e.clientX, y: e.clientY }; draw();
+});
+view.addEventListener("pointerup", () => { drag = null; view.style.cursor = "grab"; });
+view.addEventListener("dblclick", fitAll);
+new ResizeObserver(resize).observe(view);
+new ResizeObserver(resize).observe(chart);
+if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { chartDirty = true; draw(); });
+
+$("addRun").onclick = () => addRun();
+$("avg7").onclick = average7;
+$("resetAll").onclick = () => { S = defaultState(); buildAll(); changed(); };
+
+$("buildInfo").textContent = `中の走行プログラム: release/release.ino のコミット ${SRC.build.rev}（このファイルは ${SRC.build.built} に作成）`;
+buildAll(); resize();
+loadModule().then(simulateAll).catch(e => setStatus("模擬のプログラムを読み込めませんでした: " + e));
+</script>
+</body>
+</html>

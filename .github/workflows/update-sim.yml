@@ -1,15 +1,17 @@
-# basic/ を変えて main に push すると、模擬の中の走行プログラムを自動で最新にする
+# basic/ や release/ を変えて main に push すると、模擬の中の走行プログラムを自動で最新にする
 #   ・public ブランチの simulator/index.html（GitHub Pages のシミュレータ）を作り直す（basic/ を WebAssembly にして埋め込む）
+#   ・public ブランチの release-sim/index.html（release.ino の模擬）を作り直す（release/release.ino を WebAssembly にして埋め込む）
 #   ・main の debug/ を basic/ に合わせる（debug/sync.sh と同じ）
 #   変わったファイルがあれば、このワークフローがコミットする。手元の main は git pull するだけでよい。
 #   GitHub の Actions のページの「Run workflow」から手で動かすこともできる。
-name: 模擬を最新の basic/ に更新
+name: 模擬を最新の basic/・release/ に更新
 
 on:
   push:
     branches: [main]
     paths:
       - "basic/**"
+      - "release/**"
       - "tools/course_sim/**"
       - "tools/host_test/mock/**"
       - "tools/config_editor.py"
@@ -57,21 +59,31 @@ jobs:
           done
           exit 1
 
-      - name: simulator を作り直して public ブランチにコミット
+      - name: simulator と release-sim を作り直して public ブランチにコミット
         run: |
           git fetch origin public
           git worktree add ../public origin/public
           SIM_OUT=../public/simulator/index.html python3 tools/course_sim/web/build.py
+          SIM_OUT=../public/release-sim/index.html python3 tools/course_sim/web/build_release.py
           rev=$(git log -1 --format=%h -- basic)
+          rrev=$(git log -1 --format=%h -- release/release.ino)
           cd ../public
-          f=simulator/index.html
-          # 作った日だけが変わったときは元に戻す
-          if cmp -s <(git show HEAD:$f | sed 's/"built": "[^"]*"//') <(sed 's/"built": "[^"]*"//' $f); then
-            git checkout -- $f
-          fi
-          if git diff --quiet -- $f; then echo "simulator は変更なし"; exit 0; fi
-          git add $f
-          git commit -m "シミュレータを main の basic/ のコミット $rev に合わせて自動更新"
+          msg=()
+          for f in simulator/index.html release-sim/index.html; do
+            # 作った日だけが変わったときは元に戻す
+            if git cat-file -e HEAD:$f 2>/dev/null && cmp -s <(git show HEAD:$f | sed 's/"built": "[^"]*"//') <(sed 's/"built": "[^"]*"//' $f); then
+              git checkout -- $f
+            fi
+            if [ -n "$(git status --porcelain -- $f)" ]; then
+              git add $f
+              case $f in
+                simulator/*) msg+=("シミュレータを main の basic/ のコミット $rev に合わせて自動更新") ;;
+                *) msg+=("release.ino の模擬を main の release/release.ino のコミット $rrev に合わせて自動更新") ;;
+              esac
+            fi
+          done
+          if [ ${#msg[@]} -eq 0 ]; then echo "simulator・release-sim は変更なし"; exit 0; fi
+          git commit -m "${msg[0]}" ${msg[1]:+-m "${msg[1]}"}
           for i in 1 2 3 4; do
             git push origin HEAD:public && exit 0
             sleep $((i * 5))

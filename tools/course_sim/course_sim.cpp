@@ -10,6 +10,7 @@
 //       lane_pre（合流部分の始まりから中心線の切れ目まで） lane_sec（切れ目から合流部分の終わりまで） lane_new curve_r s_rad（中心線の半径） s_deg
 //       shoulder（1: 路肩の白 30mm あり） gray_white（1: 中心線の両側の灰色をセンサが白と見る）
 //       cross_to2 line_w2 gap turn1 turn2（crank2）  fric（摩擦で走らない出力 [%]）
+//       drive（1: 左右の後輪を別々に計算。出力の大きさが fric 以下では電圧がかからない。0: 左右の平均で計算）
 //       sensor_to_axle sensor_half_w（センサの基板の幅の半分。レーンチェンジでは腕と先も判定） half_w front ms trace spot dip approach dump
 //     dump=N : N ms ごとの状態を、ブラウザのシミュレータ（simulator.html）が読む形で出力する
 //
@@ -47,6 +48,9 @@ extern volatile float lane_yaw, lane_snap_y;
 void setup();
 void loop();
 void AGTCallback(timer_callback_args_t* p_args);
+#ifndef SIM_DRIVE_DEFAULT
+#define SIM_DRIVE_DEFAULT 0   // drive の初期値（release/release.ino の模擬は release_sim/config.h で 1 にする）
+#endif
 
 // ---------------- コースの形 ----------------
 // 公式のコースの寸法（ジャパンマイコンカーラリー Basic Class 競技規則 第3条、キットの解説、JMCR2027 地区大会のコース図）
@@ -94,7 +98,7 @@ static std::map<std::string, double> P = {
     {"half_w", CAR_HALF_WIDTH_M}, {"front", CAR_FRONT_M}, {"ms", 6000}, {"trace", 0}, {"spot", 0.004},
     {"dip", 3}, {"approach", 1.5}, {"dump", 0}, {"surf_w", 0.15},
     {"fric", MOTOR_FRICTION_PERCENT}, {"steer_gain", 1.0}, {"sensor_half_w", SENSOR_HALF_WIDTH_M}, {"cross_to2", 0.6}, {"line_w2", 0.032}, {"gap", 1.5}, {"turn1", 1}, {"turn2", -1},
-    {"shoulder", 1}, {"gray_white", 0},
+    {"shoulder", 1}, {"gray_white", 0}, {"drive", SIM_DRIVE_DEFAULT},
 };
 
 static const double CW = 0.150;    // コースの幅の半分
@@ -360,6 +364,16 @@ int main(int argc, char** argv) {
         const double pa = (pl + pr) * 0.5, fr = P["fric"];
         double u = (pa - fr) / (100 - fr) * vmax;      // 出力が fric [%] 以下では摩擦に負けて走らない（既定は config.h の MOTOR_FRICTION_PERCENT）
         double a = (u - v) / tau;
+        if (P["drive"] != 0) {
+            // drive=1：左右の後輪を別々に計算する（release.ino のクランクのように、内側を逆転させる走りのため）
+            //   ・出力の大きさが fric [%] 以下では、モータに電圧がかからない（止まっていれば動かず、動いていれば発電ブレーキだけ）
+            //   ・曲がっているときの車輪の速さは、内側 (1 − 曲率×トレッド/2)、外側 (1 + 曲率×トレッド/2) 倍
+            auto target = [&](double p) { double m = fabs(p) - fr; return m > 0 ? (p > 0 ? 1 : -1) * m / (100 - fr) * vmax : 0.0; };
+            const double kh = tan(steer * P["steer_gain"] * M_PI / 180) / wb * TREAD_M * 0.5;
+            const double cl = 1 + kh, cr = 1 - kh;       // 右に曲がると左が外側
+            u = (target(pl) + target(pr)) * 0.5;
+            a = 0.5 * (cl * (target(pl) - cl * v) + cr * (target(pr) - cr * v)) / tau;
+        }
         if (a > gx) a = gx;                              // タイヤが出せる前後の力は grip_long まで（それ以上は空回り・すべり）
         if (a < -gx) a = -gx;
         // 摩擦円：求められた横の加速度 v²k と前後の加速度 a が楕円 (横/grip_lat)² + (前後/grip_long)² ≦ 1 を
@@ -370,7 +384,7 @@ int main(int argc, char** argv) {
         if (q > 1.02) slip_ms++;                         // 2% を超えてグリップが足りない時間
         if (q > 1.0) { k /= q; a /= q; }
         v += a * dt;
-        if (v < 0 && pa >= 0) v = 0;                    // 摩擦で止まる（前へ出力していて後ろへは進まない）
+        if (v < 0 && (P["drive"] != 0 ? u >= 0 : pa >= 0)) v = 0;   // 摩擦で止まる（前へ出力していて後ろへは進まない）
         x += v * hx * dt; y += v * hy * dt;
         psi -= v * k * dt;                               // 右に曲がると psi は減る
         if (v > v_peak) v_peak = v;

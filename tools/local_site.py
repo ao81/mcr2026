@@ -13,6 +13,8 @@ Python 3 標準ライブラリのみ。WSL の ~/mcr2026 で
       sudo apt install clang lld wasi-libc libc++-18-dev-wasm32 libclang-rt-18-dev-wasm32）。
     clang が無い・コンパイルに失敗した時は、GitHub の走行プログラムに手元の config.h の値を初期値として入れて開く
     （画面の上に理由を出す）。
+  ・release.ino の模擬（/release-sim/）：手元の release/release.ino で作る（作り方はシミュレータと同じ）。
+    作れなかった時は GitHub の版を開く（画面の上に理由を出す）。
   ・詳細ログ（/log/）と選択ページ：ページは public ブランチのものをそのまま使う（CSV はページで選ぶ）。
   ・GitHub Pages のシミュレータ（https://ao81.github.io/mcr2026/simulator/）の「手元のファイル」→「手元のサーバから読む」も、
     このサーバの /api/sim から手元の版を読む（このサーバを動かしている間だけ）。
@@ -41,6 +43,9 @@ SIM_DIR = ROOT / "tools" / "course_sim"
 BUILD_PY = SIM_DIR / "web" / "build.py"
 # これらが変わったらシミュレータを作り直す
 SIM_SOURCES = (ROOT / "basic", SIM_DIR / "course_sim.cpp", SIM_DIR / "web", ROOT / "tools" / "host_test" / "mock")
+# release.ino の模擬（/release-sim/）
+REL_BUILD_PY = SIM_DIR / "web" / "build_release.py"
+REL_SOURCES = (ROOT / "release", SIM_DIR / "course_sim.cpp", SIM_DIR / "release_sim", SIM_DIR / "web", ROOT / "tools" / "host_test" / "mock")
 RAW_URL = "https://raw.githubusercontent.com/ao81/mcr2026/public/"
 PAGE_FILES = ("index.html", "config/index.html", "config/trial.js", "log/index.html", "simulator/index.html")
 PAGES = {}
@@ -71,6 +76,22 @@ def load_pages():
     return RAW_URL
 
 
+def load_optional_page(name):
+    """public に無いこともあるページ（release-sim/index.html）。無ければ None"""
+    if name in PAGES:
+        return PAGES[name]
+    try:
+        PAGES[name] = subprocess.run(["git", "-C", str(ROOT), "show", "origin/public:" + name],
+                                     capture_output=True, check=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        try:
+            with urllib.request.urlopen(RAW_URL + name, timeout=30) as r:
+                PAGES[name] = r.read()
+        except OSError:
+            return None
+    return PAGES[name]
+
+
 def banner(page, text, error=""):
     """ページの一番上に「ローカル版」の帯を入れる"""
     color = "#b3261e" if error else "#2f6fd6"
@@ -88,9 +109,9 @@ def banner(page, text, error=""):
     return (text[:m.end()] + bar + text[m.end():]).encode("utf-8")
 
 
-def sources_hash():
+def sources_hash(sources=SIM_SOURCES):
     digest = hashlib.sha256()
-    for base in SIM_SOURCES:
+    for base in sources:
         files = [base] if base.is_file() else sorted(p for p in base.rglob("*") if p.is_file())
         for p in files:
             digest.update(p.relative_to(ROOT).as_posix().encode() + b"\0" + hashlib.sha256(p.read_bytes()).digest())
@@ -159,6 +180,50 @@ def build_sim():
         return SIM
 
 
+RSIM = {"hash": None}
+RSIM_LOCK = threading.Lock()
+
+
+def build_release_sim():
+    """手元の release/release.ino から release.ino の模擬を作る（変わっていなければ前に作ったものを使う）"""
+    with RSIM_LOCK:
+        h = sources_hash(REL_SOURCES)
+        if RSIM["hash"] == h:
+            return RSIM
+        print("release.ino の模擬を手元の release/ から作っています…", flush=True)
+        tmp = tempfile.mkdtemp()
+        out = os.path.join(tmp, "release-sim.html")
+        result = {"hash": h, "ok": False, "html": None, "error": ""}
+        try:
+            env = dict(os.environ, SIM_OUT=out, SIM_LOCAL="1")
+            r = subprocess.run([sys.executable, str(REL_BUILD_PY)], env=env, capture_output=True, text=True, timeout=600)
+            if r.returncode == 0:
+                result.update(ok=True, html=Path(out).read_bytes())
+                print("作りました", flush=True)
+            else:
+                result["error"] = "release.ino のビルドに失敗しました:\n" + (r.stdout + r.stderr).strip()
+                print(result["error"], flush=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            result["error"] = "release.ino のビルドを実行できませんでした: %s" % exc
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        RSIM.clear()
+        RSIM.update(result)
+        return RSIM
+
+
+def release_sim_page():
+    sim = build_release_sim()
+    if sim["ok"]:
+        return banner(sim["html"], "ローカル版：手元の release/release.ino で作った模擬です。"
+                      "release.ino を変えたら、このページを再読み込みすると作り直します。")
+    page = load_optional_page("release-sim/index.html")
+    if page is None:
+        raise ValueError(sim["error"])
+    return banner(page, "ローカル版：手元の release/release.ino から作れなかったので、GitHub の版を開いています。"
+                  "手元の変更は入っていません。", sim["error"])
+
+
 def simulator_page():
     sim = build_sim()
     if sim["ok"]:
@@ -224,7 +289,7 @@ class Site(ce.Editor):
         if not self.allowed():
             return self.reply(403, {})
         path = self.path.split("?")[0]
-        if path in ("/config", "/log", "/simulator"):
+        if path in ("/config", "/log", "/simulator", "/release-sim"):
             self.send_response(301)
             self.send_header("Location", path + "/")
             self.end_headers()
@@ -238,6 +303,11 @@ class Site(ce.Editor):
                 return self.reply(200, simulator_page(), "text/html")
             except Exception as exc:  # 画面に理由を出す
                 return self.reply(500, ("シミュレータを用意できませんでした: %s" % exc).encode(), "text/plain")
+        if path in ("/release-sim/", "/release-sim/index.html"):
+            try:
+                return self.reply(200, release_sim_page(), "text/html")
+            except Exception as exc:  # 画面に理由を出す
+                return self.reply(500, ("release.ino の模擬を用意できませんでした: %s" % exc).encode(), "text/plain")
         if path in ROUTES:
             name, kind = ROUTES[path]
             page = PAGES[name]
