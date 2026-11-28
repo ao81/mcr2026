@@ -28,6 +28,11 @@ const int CRANK_FAST_APPROACH_POWER = 83;
 // クロスライン通過が11ms以下の場合、通過後18～58msに使う初段の逆転出力。
 const int CRANK_FAST_PEAK_BRAKE = -32;
 
+// クランクの端検出後、内側から中央へ白が移ったときの復帰初段（左右共通）。
+const unsigned int CRANK_CENTER_CONFIRM_MS = 12;
+const int CRANK_RETURN_STEER_DEG = 40;
+const int CRANK_RETURN_OUTER_POWER = 40;
+
 // 右レーンチェンジ。時間は元のレーンの白線が途切れた時点から数える。
 const int RIGHT_LANE_TURN_DEG = 19;                 // 渡り始めの右舵
 const int RIGHT_LANE_SEARCH_DEG = 10;               // 右レーンの中央線を探す間の右舵
@@ -384,6 +389,48 @@ static unsigned char trace_steering_sensor(unsigned char sensor)
     case 0x80: return 0xc0;
     default:   return sensor;
   }
+}
+
+// 121/161 にはそれぞれ右端/左端の検出で入り、直前に cnt1 がリセットされる。
+static bool crank_center_confirmed(unsigned char sensor, bool right_turn)
+{
+  static unsigned char edge;
+  static bool inner_seen;
+  static unsigned int center_ms;
+  if( cnt1 == 1 ) {
+      edge = right_turn ? 0x80 : 0x01;
+      inner_seen = false;
+      center_ms = 0;
+  }
+
+  switch( sensor ) {
+    case 0x08: case 0x10: case 0x18: case 0x1c: case 0x38:
+      return inner_seen && ++center_ms >= CRANK_CENTER_CONFIRM_MS;
+
+    // 白線が反対側まで横切った場合は、その側からの接近を改めて追う。
+    case 0x80: case 0xc0: case 0xe0: case 0xf0: case 0xf8: case 0xfc:
+      edge = 0x80;
+      inner_seen = false;
+      break;
+    case 0x01: case 0x03: case 0x07: case 0x0f: case 0x1f: case 0x3f:
+      edge = 0x01;
+      inner_seen = false;
+      break;
+    case 0x20: case 0x30: case 0x60: case 0x70: case 0x78: case 0x7c:
+      inner_seen = edge == 0x80;
+      break;
+    case 0x04: case 0x0c: case 0x06: case 0x0e: case 0x1e: case 0x3e:
+      inner_seen = edge == 0x01;
+      break;
+    case 0x3c:   // 幅広の中央反応は通過を許すが、中央確定の時間に含めない。
+      break;
+    default:     // 全消灯・全白・両端など。次の端検出からやり直す。
+      edge = 0;
+      inner_seen = false;
+      break;
+  }
+  center_ms = 0;
+  return false;
 }
 
 // cnt1 は中央付近の白が連続した時間。段を上げても計測を続ける。
@@ -1120,8 +1167,15 @@ switch( pattern ) {
 	        break;
 
  case 121:                    /* 左クランク高速走行による脱輪回避処理 */
+          c = sensor_inp(MASK4_4);
+          if( crank_center_confirmed(c, false) ) {
+              ha( -CRANK_RETURN_STEER_DEG );
+              sp( 0, CRANK_RETURN_OUTER_POWER );
+              pattern = 120;
+              break;
+          }
           ha( -50 );                     /* 左クランクの最大曲げ角度 */
-          switch( sensor_inp(MASK4_4) ) {
+          switch( c ) {
 
             case 0x01:sp(   -5 ,   70 );break;
             case 0x03:sp(  -11 ,   65 );break;
@@ -1218,8 +1272,15 @@ switch( pattern ) {
 	        break;
 
  case 161:                    /* 右クランク高速走行による脱輪回避処理 */
+          c = sensor_inp(MASK4_4);
+          if( crank_center_confirmed(c, true) ) {
+              ha( CRANK_RETURN_STEER_DEG );
+              sp( CRANK_RETURN_OUTER_POWER, 0 );
+              pattern = 160;
+              break;
+          }
           ha(  50 );                     /* 右クランクの最大曲げ角度 */
-          switch( sensor_inp(MASK4_4) ) {
+          switch( c ) {
 
             case 0x80:sp(   45 ,   -5 );break;
             case 0xc0:sp(   40 ,  -11 );break;
