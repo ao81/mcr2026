@@ -35,6 +35,14 @@ const unsigned int RIGHT_LANE_FULL_TURN_MS = 220;   // 速度区分に応じて0
 const unsigned int RIGHT_LANE_SEARCH_LIMIT_MS = 450; // この時刻までに確認できなければ停止
 const unsigned int RIGHT_LANE_CENTER_CONFIRM_MS = 2; // 右内側の反応後、中央寄りに連続して白が見えた時間
 
+// 右レーンチェンジ：ハーフライン通過後の減速。cnt1 はハーフラインを通り過ぎた時点から数える。
+// 減速表 shasenhenkou() は幅20mmのハーフライン用。40mmのコースでは通過時間が約2倍になり「遅い」と判断されるので換算する。
+const int HALF_LINE_WIDTH_MM = 40;                  // このコースのハーフラインの幅[mm]（20にすると換算しない）
+const unsigned int RIGHT_LANE_FULL_MS = 0;          // 通過後も100%を続ける時間
+const int RIGHT_LANE_BRAKE_POWER = -30;             // ブレーキの出力
+const unsigned int RIGHT_LANE_BRAKE_MS = 80;        // ブレーキを続ける時間
+const int RIGHT_LANE_HOLD_POWER = 65;               // ブレーキの後、中心線が切れるまで保つ出力（0にすると元の減速表）
+
 // 復帰中に両端の白が続いた場合にだけ、戻し舵と通常走行への移行を抑える。
 const unsigned int RIGHT_LANE_SPLIT_MS = 16;
 const int RIGHT_LANE_SPLIT_STEER_DEG = -12;
@@ -1216,7 +1224,7 @@ switch( pattern ) {
                      kyori_flug = 1;
 	   	    } else if( kyori_flug == 1 && check_shasenhenkoum() == 0 ){
                      kyori_flug = 2;
-		  	             kyoritime = cnt1;
+		  	             kyoritime = cnt1 * 20 / HALF_LINE_WIDTH_MM; /* 20mm幅に換算 */
 		      }
           if( kyori_flug == 2 ){
 	            cnt1 = 0;
@@ -5319,6 +5327,12 @@ void newcrank( void )
 //**********************************************************************
 void shasenhenkou( void )
 {
+    if( RIGHT_LANE_HOLD_POWER > 0 ) {  /* 速さに関係なく、ブレーキの後は一定の出力で中心線の切れ目まで走る */
+             if( cnt1 < RIGHT_LANE_FULL_MS ){sp( 100 , 100 );}
+        else if( cnt1 < RIGHT_LANE_FULL_MS + RIGHT_LANE_BRAKE_MS ){sp( RIGHT_LANE_BRAKE_POWER , RIGHT_LANE_BRAKE_POWER );}
+        else {sp( RIGHT_LANE_HOLD_POWER , RIGHT_LANE_HOLD_POWER );}
+        return;
+    }
          if( kyoritime <=   5 ){   /* 車線変更ライン通過後の減速制御 */
          if(cnt1 <  75 ){sp(  100 ,  100 );}
     else if(cnt1 <  81 ){sp(   -5 ,   -5 );}
