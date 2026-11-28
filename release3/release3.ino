@@ -370,6 +370,22 @@ void loop()
   }
 }
 
+// 単独点灯を同じ位置の操舵表に割り当てる。マーカーと大曲がりの確認には生値を使う。
+static unsigned char trace_steering_sensor(unsigned char sensor)
+{
+  switch( sensor ) {
+    case 0x01: return 0x03;
+    case 0x02: return 0x07;
+    case 0x04: return 0x0e;
+    case 0x08: return 0x1c;
+    case 0x10: return 0x38;
+    case 0x20: return 0x70;
+    case 0x40: return 0xe0;
+    case 0x80: return 0xc0;
+    default:   return sensor;
+  }
+}
+
 // cnt1 は中央付近の白が連続した時間。段を上げても計測を続ける。
 static void advance_trace_if_centered(unsigned char sensor, unsigned int threshold_ms)
 {
@@ -532,7 +548,7 @@ switch( pattern ) {
              
           c = sensor_inp( MASK4_4 );
           advance_trace_if_centered(c, 350);
-          switch( c ) {
+          switch( trace_steering_sensor(c) ) {
             case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
             case 0x1c:ha(   2 );sp(  100 ,  100 );break;                      /* 車体の右方向補正 */
@@ -540,14 +556,20 @@ switch( pattern ) {
             case 0x0e:ha(  11 );sp(  100 ,   89 );break;                      /* 微程度の右曲がり */
             case 0x06:ha(  15 );sp(  100 ,   81 );break;                      /* 小程度の右曲がり */
             case 0x07:ha(  18 );sp(  100 ,   75 );break;                      /* 中程度の右曲がり */
-            case 0x03:ha(  21 );sp(  100 ,   65 );cnt1 = 0;pattern = 30;break;/* 大程度の右曲がり */
+            case 0x03:
+              ha( 21 ); sp( 100, 65 );
+              if( c == 0x03 ) { cnt1 = 0; pattern = 30; }
+              break;
                       
             case 0x38:ha(  -2 );sp(  100 ,  100 );break;                      /* 車体の左方向補正 */
             case 0x30:ha(  -7 );sp(   97 ,  100 );break;                      /* 微程度の左曲がり */
             case 0x70:ha( -11 );sp(   89 ,  100 );break;                      /* 微程度の左曲がり */
             case 0x60:ha( -15 );sp(   81 ,  100 );break;                      /* 小程度の左曲がり */
             case 0xe0:ha( -18 );sp(   75 ,  100 );break;                      /* 中程度の左曲がり */ 
-            case 0xc0:ha( -21 );sp(   65 ,  100 );cnt1 = 0;pattern = 40;break;/* 大程度の左曲がり */
+            case 0xc0:
+              ha( -21 ); sp( 65, 100 );
+              if( c == 0xc0 ) { cnt1 = 0; pattern = 40; }
+              break;
             default:break;
           }
           break;
@@ -560,7 +582,7 @@ switch( pattern ) {
 
           c = sensor_inp( MASK4_4 );
           advance_trace_if_centered(c, 650);
-          switch( c ) {
+          switch( trace_steering_sensor(c) ) {
             case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
             case 0x1c:ha(   5 );sp(  100 ,  100 );break;                      /* 車体の右方向補正 */
@@ -568,14 +590,20 @@ switch( pattern ) {
             case 0x0e:ha(  11 );sp(  100 ,   86 );break;                      /* 微程度の右曲がり */
             case 0x06:ha(  15 );sp(  100 ,   77 );break;                      /* 小程度の右曲がり */
             case 0x07:ha(  19 );sp(  100 ,   68 );break;                      /* 中程度の右曲がり */
-            case 0x03:ha(  22 );sp(  100 ,   59 );cnt1 = 0;pattern = 31;break;/* 大程度の右曲がり */
+            case 0x03:
+              ha( 22 ); sp( 100, 59 );
+              if( c == 0x03 ) { cnt1 = 0; pattern = 31; }
+              break;
                 
             case 0x38:ha(  -2 );sp(  100 ,  100 );break;                      /* 車体の左方向補正 */
             case 0x30:ha(  -7 );sp(   95 ,  100 );break;                      /* 微程度の左曲がり */
             case 0x70:ha( -11 );sp(   86 ,  100 );break;                      /* 微程度の左曲がり */
             case 0x60:ha( -15 );sp(   77 ,  100 );break;                      /* 小程度の左曲がり */
             case 0xe0:ha( -19 );sp(   68 ,  100 );break;                      /* 中程度の左曲がり */                           
-            case 0xc0:ha( -22 );sp(   59 ,  100 );cnt1 = 0;pattern = 41;break;/* 大程度の左曲がり */             
+            case 0xc0:
+              ha( -22 ); sp( 59, 100 );
+              if( c == 0xc0 ) { cnt1 = 0; pattern = 41; }
+              break;
             default:break;
           }
 
@@ -589,7 +617,7 @@ switch( pattern ) {
           
           c = sensor_inp( MASK4_4 );
           advance_trace_if_centered(c, 900);
-          switch( c ) {
+          switch( trace_steering_sensor(c) ) {
 
             case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
@@ -598,14 +626,20 @@ switch( pattern ) {
             case 0x0e:ha(  11 );sp(  100 ,   82 );break;                      /* 微程度の右曲がり */       
             case 0x06:ha(  15 );sp(  100 ,   72 );break;                      /* 小程度の右曲がり */       
             case 0x07:ha(  19 );sp(  100 ,   62 );break;                      /* 中程度の右曲がり */       
-            case 0x03:ha(  22 );sp(  100 ,   53 );cnt1 = 0;pattern = 32;break;/* 大程度の右曲がり */
+            case 0x03:
+              ha( 22 ); sp( 100, 53 );
+              if( c == 0x03 ) { cnt1 = 0; pattern = 32; }
+              break;
 
             case 0x38:ha(  -2 );sp(  100 ,  100 );break;                      /* 車体の左方向補正 */                           
             case 0x30:ha(  -7 );sp(   93 ,  100 );break;                      /* 微程度の左曲がり */                            
             case 0x70:ha( -11 );sp(   82 ,  100 );break;                      /* 微程度の左曲がり */                            
             case 0x60:ha( -15 );sp(   72 ,  100 );break;                      /* 小程度の左曲がり */
             case 0xe0:ha( -19 );sp(   62 ,  100 );break;                      /* 中程度の左曲がり */                            
-            case 0xc0:ha( -22 );sp(   53 ,  100 );cnt1 = 0;pattern = 42;break;/* 大程度の左曲がり */          
+            case 0xc0:
+              ha( -22 ); sp( 53, 100 );
+              if( c == 0xc0 ) { cnt1 = 0; pattern = 42; }
+              break;
             default:break;
           }
           break;
@@ -618,7 +652,7 @@ switch( pattern ) {
           
           c = sensor_inp( MASK4_4 );
           advance_trace_if_centered(c, 1100);
-          switch( c ) {
+          switch( trace_steering_sensor(c) ) {
 
                   case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
@@ -627,14 +661,20 @@ switch( pattern ) {
                   case 0x0e:ha(  11 );sp(  100 ,   79 );break;                      /* 微程度の右曲がり */                           
                   case 0x06:ha(  15 );sp(  100 ,   67 );break;                      /* 小程度の右曲がり */                            
                   case 0x07:ha(  19 );sp(  100 ,   57 );break;                      /* 中程度の右曲がり */                            
-				          case 0x03:ha(  23 );sp(  100 ,   47 );cnt1 = 0;pattern = 33;break;/* 大程度の右曲がり */
+            case 0x03:
+              ha( 23 ); sp( 100, 47 );
+              if( c == 0x03 ) { cnt1 = 0; pattern = 33; }
+              break;
                             
                   case 0x38:ha(  -2 );sp(  100 ,  100 );break;                      /* 車体の左方向補正 */                           
 				          case 0x30:ha(  -7 );sp(   91 ,  100 );break;                      /* 微程度の左曲がり */                            
 				          case 0x70:ha( -11 );sp(   79 ,  100 );break;                      /* 微程度の左曲がり */                           
 				          case 0x60:ha( -15 );sp(   67 ,  100 );break;                      /* 小程度の左曲がり */                            
                   case 0xe0:ha( -19 );sp(   57 ,  100 );break;                      /* 中程度の左曲がり */                            
-                  case 0xc0:ha( -23 );sp(   47 ,  100 );cnt1 = 0;pattern = 43;break;/* 大程度の左曲がり */         
+            case 0xc0:
+              ha( -23 ); sp( 47, 100 );
+              if( c == 0xc0 ) { cnt1 = 0; pattern = 43; }
+              break;
                   default:break;
           }
           break;
@@ -647,7 +687,7 @@ switch( pattern ) {
           
           c = sensor_inp( MASK4_4 );
           advance_trace_if_centered(c, 1250);
-          switch( c ) {
+          switch( trace_steering_sensor(c) ) {
 
                   case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */ 
 
@@ -656,14 +696,20 @@ switch( pattern ) {
                   case 0x0e:ha(  11 );sp(  100 ,   76 );break;                      /* 微程度の右曲がり */                            
                   case 0x06:ha(  15 );sp(  100 ,   64 );break;                      /* 小程度の右曲がり */                          
                   case 0x07:ha(  19 );sp(  100 ,   52 );break;                      /* 中程度の右曲がり */                            
-				          case 0x03:ha(  23 );sp(  100 ,   41 );cnt1 = 0;pattern = 34;break;/* 大程度の右曲がり */
+            case 0x03:
+              ha( 23 ); sp( 100, 41 );
+              if( c == 0x03 ) { cnt1 = 0; pattern = 34; }
+              break;
                            
                   case 0x38:ha(  -2 );sp(  100 ,  100 );break;                      /* 車体の左方向補正 */                           
 				          case 0x30:ha(  -7 );sp(   89 ,  100 );break;                      /* 微程度の左曲がり */                            
 				          case 0x70:ha( -11 );sp(   76 ,  100 );break;                      /* 微程度の左曲がり */                            
 				          case 0x60:ha( -15 );sp(   64 ,  100 );break;                      /* 小程度の左曲がり */                            
                   case 0xe0:ha( -19 );sp(   52 ,  100 );break;                      /* 中程度の左曲がり */                            
-                  case 0xc0:ha( -23 );sp(   41 ,  100 );cnt1 = 0;pattern = 44;break;/* 大程度の左曲がり */
+            case 0xc0:
+              ha( -23 ); sp( 41, 100 );
+              if( c == 0xc0 ) { cnt1 = 0; pattern = 44; }
+              break;
                   default:break;
           }
           break;
@@ -675,29 +721,27 @@ switch( pattern ) {
           if( check_shasenhenkouh() ) {cnt1 = 0;pattern = 500;break;} /* 左車線変更ラインチェック  */
           
           c = sensor_inp( MASK4_4 );
-          // 単独点灯でもセンサー位置に応じた既存の操舵・内輪出力を使う。
-          switch( sensor_inp( MASK4_4 ) ) {
+          switch( trace_steering_sensor(c) ) {
 
                   case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */                            
-                  case 0x08:
                   case 0x1c:ha(   2 );sp(  100 ,  100 );break;                      /* 車体の右方向補正 */                            
                   case 0x0c:ha(   7 );sp(  100 ,   87 );break;                      /* 微程度の右曲がり */                           
-                  case 0x04:
                   case 0x0e:ha(  12 );sp(  100 ,   74 );break;                      /* 微程度の右曲がり */                           
                   case 0x06:ha(  16 );sp(  100 ,   61 );break;                      /* 小程度の右曲がり */                            
-                  case 0x02:
                   case 0x07:ha(  20 );sp(  100 ,   48 );break;                      /* 中程度の右曲がり */                            
-				          case 0x03:ha(  24 );sp(  100 ,   35 );cnt1 = 0;pattern = 35;break;/* 大程度の右曲がり */
-                            
-                  case 0x10:
+            case 0x03:
+              ha( 24 ); sp( 100, 35 );
+              if( c == 0x03 ) { cnt1 = 0; pattern = 35; }
+              break;
                   case 0x38:ha(  -2 );sp(  100 ,  100 );break;                      /* 車体の左方向補正 */                            
 				          case 0x30:ha(  -7 );sp(   87 ,  100 );break;                      /* 微程度の左曲がり */                            
-				          case 0x20:
 				          case 0x70:ha( -12 );sp(   74 ,  100 );break;                      /* 微程度の左曲がり */                            
 				          case 0x60:ha( -16 );sp(   61 ,  100 );break;                      /* 小程度の左曲がり */                            
-                  case 0x40:
                   case 0xe0:ha( -20 );sp(   48 ,  100 );break;                      /* 中程度の左曲がり */                           
-                  case 0xc0:ha( -24 );sp(   35 ,  100 );cnt1 = 0;pattern = 45;break;/* 大程度の左曲がり */
+            case 0xc0:
+              ha( -24 ); sp( 35, 100 );
+              if( c == 0xc0 ) { cnt1 = 0; pattern = 45; }
+              break;
                   default:break;
           }
           break;
