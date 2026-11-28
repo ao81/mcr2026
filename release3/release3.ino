@@ -370,6 +370,17 @@ void loop()
   }
 }
 
+// cnt1 は中央付近の白が連続した時間。段を上げても計測を続ける。
+static void advance_trace_if_centered(unsigned char sensor, unsigned int threshold_ms)
+{
+  if( sensor == 0x18 || sensor == 0x1c || sensor == 0x38 ||
+      sensor == 0x08 || sensor == 0x10 ) {
+      if( cnt1 >= threshold_ms ) ++pattern;
+  } else {
+      cnt1 = 0;
+  }
+}
+
 //***********************************************************************
 // 1msごとの割り込み（通常走行、1msごとに実行する処理）
 //***********************************************************************
@@ -520,12 +531,8 @@ switch( pattern ) {
           if( check_shasenhenkouh() ) {cnt1 = 0;pattern = 500;break;} /* 左車線変更ラインチェック  */
              
           c = sensor_inp( MASK4_4 );
-          if( c == ( 0x18 )||( 0x1c )||( 0x38 ) ) {
-              if( cnt1 >=  350 ) {pattern = 21;break;}
-		      } else {
-              cnt1 = 0;
-          }
-    	    switch( sensor_inp( MASK4_4 ) ) {
+          advance_trace_if_centered(c, 350);
+          switch( c ) {
             case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
             case 0x1c:ha(   2 );sp(  100 ,  100 );break;                      /* 車体の右方向補正 */
@@ -552,15 +559,8 @@ switch( pattern ) {
           if( check_shasenhenkouh() ) {cnt1 = 0;pattern = 500;break;} /* 左車線変更ラインチェック  */
 
           c = sensor_inp( MASK4_4 );
-                 if( c == ( 0x18 )||( 0x1c )||( 0x38 ) ) {
-                     if( cnt1 >=  650 ) {
-                         pattern = 22;
-						         break;
-				             }
-		      } else {
-                     cnt1 = 0;
-          }
-    	    switch( sensor_inp( MASK4_4 ) ) {
+          advance_trace_if_centered(c, 650);
+          switch( c ) {
             case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
             case 0x1c:ha(   5 );sp(  100 ,  100 );break;                      /* 車体の右方向補正 */
@@ -588,15 +588,8 @@ switch( pattern ) {
           if( check_shasenhenkouh() ) {cnt1 = 0;pattern = 500;break;} /* 左車線変更ラインチェック  */
           
           c = sensor_inp( MASK4_4 );
-                 if( c == ( 0x18 )||( 0x1c )||( 0x38 ) ) {
-                     if( cnt1 >=  900 ) {
-                         pattern = 23;
-						         break;
-				             }
-		      } else {
-                     cnt1 = 0;
-          }
-    	    switch( sensor_inp( MASK4_4 ) ) {
+          advance_trace_if_centered(c, 900);
+          switch( c ) {
 
             case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
@@ -624,15 +617,8 @@ switch( pattern ) {
           if( check_shasenhenkouh() ) {cnt1 = 0;pattern = 500;break;} /* 左車線変更ラインチェック  */
           
           c = sensor_inp( MASK4_4 );
-                 if( c == ( 0x18 )||( 0x1c )||( 0x38 ) ) {
-                     if( cnt1 >= 1100 ) {
-                         pattern = 24;
-						             break;
-				             }
-		      } else {
-                     cnt1 = 0;
-          }
-    	    switch( sensor_inp( MASK4_4 ) ) {
+          advance_trace_if_centered(c, 1100);
+          switch( c ) {
 
                   case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */
 
@@ -660,15 +646,8 @@ switch( pattern ) {
           if( check_shasenhenkouh() ) {cnt1 = 0;pattern = 500;break;} /* 左車線変更ラインチェック  */
           
           c = sensor_inp( MASK4_4 );
-                 if( c == ( 0x18 )||( 0x1c )||( 0x38 ) ) {
-                     if( cnt1 >= 1250 ) {
-                         pattern = 25;
-						             break;
-				             }
-		      } else {
-                     cnt1 = 0;
-          }
-    	    switch( sensor_inp( MASK4_4 ) ) {
+          advance_trace_if_centered(c, 1250);
+          switch( c ) {
 
                   case 0x18:ha(   0 );sp(  100 ,  100 );break;                      /*     直  進      */ 
 
